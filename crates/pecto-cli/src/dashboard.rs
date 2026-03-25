@@ -27,8 +27,10 @@ body {{ font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', san
 .header .stats {{ color: #64748b; font-size: 13px; }}
 .header .live {{ color: #34d399; font-size: 11px; margin-left: auto; }}
 .container {{ display: grid; grid-template-columns: 1fr 360px; height: calc(100vh - 53px); }}
-#graph {{ background: #0f172a; cursor: grab; position: relative; }}
+#graph {{ background: #0f172a; cursor: grab; position: relative; overflow: hidden; }}
 #graph:active {{ cursor: grabbing; }}
+#graph svg {{ position: absolute; top: 0; left: 0; width: 100%; height: 100%; }}
+#domain-filter {{ pointer-events: auto; }}
 
 /* Sidebar */
 .sidebar {{ border-left: 1px solid #1e293b; overflow-y: auto; padding: 16px; }}
@@ -425,10 +427,34 @@ if (allDeps.length > 0) {{
     showDetail(d.id);
   }});
 
+  let fitted = false;
   sim.on('tick', () => {{
     link.attr('x1', d => d.source.x).attr('y1', d => d.source.y)
         .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
     node.attr('transform', d => `translate(${{d.x}},${{d.y}})`);
+    domainLabels.attr('x', d => domainCenters[d]?.x || 0).attr('y', d => (domainCenters[d]?.y || 0) - 10);
+  }});
+
+  // Auto zoom-to-fit after simulation settles
+  sim.on('end', () => {{
+    if (fitted) return;
+    fitted = true;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    nodes.forEach(n => {{
+      if (n.x < minX) minX = n.x;
+      if (n.y < minY) minY = n.y;
+      if (n.x > maxX) maxX = n.x;
+      if (n.y > maxY) maxY = n.y;
+    }});
+    const bw = maxX - minX + 100;
+    const bh = maxY - minY + 100;
+    const scale = Math.min(width / bw, height / bh, 1.5) * 0.9;
+    const tx = width / 2 - (minX + maxX) / 2 * scale;
+    const ty = height / 2 - (minY + maxY) / 2 * scale;
+    svg.transition().duration(500).call(
+      d3.zoom().scaleExtent([0.1, 8]).on('zoom', (e) => g.attr('transform', e.transform))
+        .transform, d3.zoomIdentity.translate(tx, ty).scale(scale)
+    );
   }});
 }} else {{
   svg.append('text').attr('x', width/2).attr('y', height/2).attr('text-anchor', 'middle')
