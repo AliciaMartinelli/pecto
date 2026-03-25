@@ -68,6 +68,20 @@ pub fn analyze_project(path: &Path) -> Result<ProjectSpec, JavaAnalysisError> {
         {
             spec.capabilities.push(capability);
         }
+
+        // Service extraction
+        if let Some(capability) = extractors::service::extract(file)
+            && !capability.is_empty()
+        {
+            spec.capabilities.push(capability);
+        }
+
+        // Scheduled tasks + event listeners
+        if let Some(capability) = extractors::scheduled::extract(file)
+            && !capability.is_empty()
+        {
+            spec.capabilities.push(capability);
+        }
     }
 
     Ok(spec)
