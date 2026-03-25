@@ -59,6 +59,19 @@ pecto init ./my-app --verbose
 
 # Machine-readable output (no status messages)
 pecto init ./my-app --quiet > specs.yaml
+
+# See business domains and dependencies
+pecto domains ./my-app
+pecto graph ./my-app --format dot | dot -Tpng > graph.png
+
+# Impact analysis: what breaks if you change this?
+pecto impact Owner
+
+# Interactive web dashboard
+pecto serve ./my-app
+
+# AI-ready project context
+pecto context ./my-app
 ```
 
 ## Commands
@@ -94,6 +107,54 @@ pecto diff <base-ref> [head-ref] [--path .]
 ```
 
 Shows behavior changes between two git refs. Useful for code review.
+
+### `pecto domains` — Business domain clusters
+
+```bash
+pecto domains [path]
+```
+
+Groups capabilities by business domain (naming conventions + dependency analysis).
+
+### `pecto graph` — Dependency graph
+
+```bash
+pecto graph [path] [--format text|dot|json]
+```
+
+Shows how capabilities depend on each other. DOT format for Graphviz, JSON for tooling.
+
+### `pecto impact` — Change impact analysis
+
+```bash
+pecto impact <name> [--path .]
+```
+
+Traces the dependency graph to show what breaks if you change a capability.
+
+### `pecto context` — AI/LLM context export
+
+```bash
+pecto context [path]
+```
+
+Compact project summary optimized for LLM context windows (~4K tokens).
+
+### `pecto report` — HTML report
+
+```bash
+pecto report [path] [--output pecto-report.html]
+```
+
+Self-contained HTML with interactive D3.js dependency graph. Opens in any browser.
+
+### `pecto serve` — Web dashboard
+
+```bash
+pecto serve [path] [--port 4321]
+```
+
+Live interactive dashboard at `http://localhost:4321` with dependency graph, domain clusters, and search.
 
 ## Example Output
 
