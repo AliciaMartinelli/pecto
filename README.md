@@ -1,6 +1,6 @@
 # pecto
 
-[![CI](https://github.com/pecto-dev/pecto/actions/workflows/ci.yml/badge.svg)](https://github.com/pecto-dev/pecto/actions/workflows/ci.yml)
+[![CI](https://github.com/AliciaMartinelli/pecto/actions/workflows/ci.yml/badge.svg)](https://github.com/AliciaMartinelli/pecto/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 **Extract behavior specs from code through static analysis.**
