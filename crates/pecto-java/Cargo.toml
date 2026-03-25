@@ -1,0 +1,13 @@
+[package]
+name = "pecto-java"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Java/Spring Boot behavior extractor"
+
+[dependencies]
+pecto-core = { path = "../pecto-core" }
+tree-sitter = { workspace = true }
+tree-sitter-java = { workspace = true }
+thiserror = { workspace = true }
+walkdir = { workspace = true }

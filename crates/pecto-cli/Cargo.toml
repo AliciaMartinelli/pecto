@@ -1,0 +1,20 @@
+[package]
+name = "pecto"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Extract behavior specs from code through static analysis"
+
+[[bin]]
+name = "pecto"
+path = "src/main.rs"
+
+[dependencies]
+pecto-core = { path = "../pecto-core" }
+pecto-java = { path = "../pecto-java" }
+clap = { workspace = true }
+anyhow = { workspace = true }
+owo-colors = { workspace = true }
+walkdir = { workspace = true }
+rayon = { workspace = true }
+serde_yaml = { workspace = true }
