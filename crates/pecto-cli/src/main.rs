@@ -27,6 +27,14 @@ enum Commands {
         /// Write specs to file instead of stdout
         #[arg(short, long)]
         output: Option<PathBuf>,
+
+        /// Show detailed per-capability breakdown
+        #[arg(short, long)]
+        verbose: bool,
+
+        /// Suppress all status output (only print spec)
+        #[arg(short, long)]
+        quiet: bool,
     },
 
     /// Show the spec for a specific capability
@@ -72,34 +80,86 @@ fn main() -> Result<()> {
             path,
             format,
             output,
-        } => cmd_init(&path, &format, output.as_deref()),
+            verbose,
+            quiet,
+        } => cmd_init(&path, &format, output.as_deref(), verbose, quiet),
         Commands::Show { name, path } => cmd_show(&name, &path),
         Commands::Verify { spec, path } => cmd_verify(&spec, &path),
         Commands::Diff { base, head, path } => cmd_diff(&base, &head, &path),
     }
 }
 
-fn cmd_init(path: &PathBuf, format: &str, output: Option<&std::path::Path>) -> Result<()> {
+fn cmd_init(
+    path: &PathBuf,
+    format: &str,
+    output: Option<&std::path::Path>,
+    verbose: bool,
+    quiet: bool,
+) -> Result<()> {
     let abs_path = std::fs::canonicalize(path)
         .with_context(|| format!("Cannot find directory: {}", path.display()))?;
 
-    eprintln!(
-        "{} Analyzing {}...",
-        "pecto".bold().cyan(),
-        abs_path.display()
-    );
+    if !quiet {
+        eprintln!(
+            "{} Analyzing {}...",
+            "pecto".bold().cyan(),
+            abs_path.display()
+        );
+    }
 
     let spec = pecto_java::analyze_project(&abs_path).with_context(|| "Analysis failed")?;
 
-    let total_endpoints: usize = spec.capabilities.iter().map(|c| c.endpoints.len()).sum();
+    if !quiet {
+        let total_endpoints: usize = spec.capabilities.iter().map(|c| c.endpoints.len()).sum();
+        let total_entities: usize = spec.capabilities.iter().map(|c| c.entities.len()).sum();
+        let total_operations: usize = spec.capabilities.iter().map(|c| c.operations.len()).sum();
+        let total_tasks: usize = spec
+            .capabilities
+            .iter()
+            .map(|c| c.scheduled_tasks.len())
+            .sum();
 
-    eprintln!(
-        "{} Analyzed {} files → {} capabilities, {} endpoints\n",
-        "✓".bold().green(),
-        spec.files_analyzed,
-        spec.capabilities.len().to_string().bold(),
-        total_endpoints.to_string().bold(),
-    );
+        eprintln!(
+            "{} Analyzed {} files → {} capabilities\n",
+            "✓".bold().green(),
+            spec.files_analyzed,
+            spec.capabilities.len().to_string().bold(),
+        );
+
+        // Summary table
+        if total_endpoints > 0 {
+            eprintln!("  {} endpoints", total_endpoints.to_string().bold());
+        }
+        if total_entities > 0 {
+            eprintln!("  {} entities", total_entities.to_string().bold());
+        }
+        if total_operations > 0 {
+            eprintln!("  {} operations", total_operations.to_string().bold());
+        }
+        if total_tasks > 0 {
+            eprintln!("  {} scheduled tasks", total_tasks.to_string().bold());
+        }
+
+        if verbose {
+            eprintln!();
+            for cap in &spec.capabilities {
+                let detail = if !cap.endpoints.is_empty() {
+                    format!("{} endpoints", cap.endpoints.len())
+                } else if !cap.entities.is_empty() {
+                    format!("{} entities", cap.entities.len())
+                } else if !cap.operations.is_empty() {
+                    format!("{} operations", cap.operations.len())
+                } else if !cap.scheduled_tasks.is_empty() {
+                    format!("{} tasks", cap.scheduled_tasks.len())
+                } else {
+                    continue;
+                };
+                eprintln!("  {} {}", cap.name.bold(), detail.dimmed());
+            }
+        }
+
+        eprintln!();
+    }
 
     let output_str = match format {
         "json" => pecto_core::output::to_json(&spec).context("Failed to serialize to JSON")?,
@@ -110,11 +170,13 @@ fn cmd_init(path: &PathBuf, format: &str, output: Option<&std::path::Path>) -> R
         Some(out_path) => {
             std::fs::write(out_path, &output_str)
                 .with_context(|| format!("Failed to write to {}", out_path.display()))?;
-            eprintln!(
-                "{} Spec written to {}",
-                "✓".bold().green(),
-                out_path.display()
-            );
+            if !quiet {
+                eprintln!(
+                    "{} Spec written to {}",
+                    "✓".bold().green(),
+                    out_path.display()
+                );
+            }
         }
         None => {
             println!("{output_str}");
@@ -159,7 +221,6 @@ fn cmd_verify(spec_path: &PathBuf, path: &PathBuf) -> Result<()> {
     let abs_path = std::fs::canonicalize(path)
         .with_context(|| format!("Cannot find directory: {}", path.display()))?;
 
-    // Read existing spec
     let spec_content = std::fs::read_to_string(spec_path)
         .with_context(|| format!("Cannot read spec file: {}", spec_path.display()))?;
 
@@ -176,7 +237,6 @@ fn cmd_verify(spec_path: &PathBuf, path: &PathBuf) -> Result<()> {
         abs_path.display()
     );
 
-    // Re-analyze the project
     let current_spec = pecto_java::analyze_project(&abs_path).with_context(|| "Analysis failed")?;
 
     let current_str = match format {
@@ -186,7 +246,6 @@ fn cmd_verify(spec_path: &PathBuf, path: &PathBuf) -> Result<()> {
             .context("Failed to serialize current spec")?,
     };
 
-    // Compare
     if spec_content.trim() == current_str.trim() {
         eprintln!(
             "{} Spec matches code — no drift detected",
@@ -195,7 +254,6 @@ fn cmd_verify(spec_path: &PathBuf, path: &PathBuf) -> Result<()> {
         return Ok(());
     }
 
-    // Show diff
     eprintln!("{} Spec drift detected! Differences:\n", "✗".bold().red());
 
     use similar::{ChangeTag, TextDiff};
@@ -218,21 +276,17 @@ fn cmd_diff(base: &str, head: &str, path: &PathBuf) -> Result<()> {
 
     eprintln!("{} Comparing {} → {}...", "pecto".bold().cyan(), base, head);
 
-    // Create temp directories for the two git refs
     let temp_dir = std::env::temp_dir().join("pecto-diff");
     let base_dir = temp_dir.join("base");
     let head_dir = temp_dir.join("head");
 
-    // Clean up any previous run
     let _ = std::fs::remove_dir_all(&temp_dir);
     std::fs::create_dir_all(&base_dir).context("Failed to create temp dir")?;
     std::fs::create_dir_all(&head_dir).context("Failed to create temp dir")?;
 
-    // Export git refs to temp directories
     export_git_ref(&abs_path, base, &base_dir)?;
     export_git_ref(&abs_path, head, &head_dir)?;
 
-    // Analyze both
     let base_spec =
         pecto_java::analyze_project(&base_dir).with_context(|| "Failed to analyze base ref")?;
     let head_spec =
@@ -243,7 +297,6 @@ fn cmd_diff(base: &str, head: &str, path: &PathBuf) -> Result<()> {
     let head_yaml =
         pecto_core::output::to_yaml(&head_spec).context("Failed to serialize head spec")?;
 
-    // Clean up
     let _ = std::fs::remove_dir_all(&temp_dir);
 
     if base_yaml == head_yaml {
@@ -277,7 +330,6 @@ fn cmd_diff(base: &str, head: &str, path: &PathBuf) -> Result<()> {
     Ok(())
 }
 
-/// Export files from a git ref to a target directory using git archive.
 fn export_git_ref(
     repo_path: &std::path::Path,
     git_ref: &str,
@@ -295,7 +347,7 @@ fn export_git_ref(
         anyhow::bail!("git archive failed for ref '{}': {}", git_ref, stderr);
     }
 
-    let output2 = std::process::Command::new("tar")
+    let child = std::process::Command::new("tar")
         .args(["xf", "-"])
         .current_dir(target)
         .stdin(std::process::Stdio::piped())
@@ -305,7 +357,7 @@ fn export_git_ref(
         .context("Failed to run tar")?;
 
     use std::io::Write;
-    let mut child = output2;
+    let mut child = child;
     child
         .stdin
         .as_mut()
