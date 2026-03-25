@@ -1,0 +1,50 @@
+name: 'pecto verify'
+description: 'Verify that code matches its behavior spec using pecto'
+branding:
+  icon: 'check-circle'
+  color: 'blue'
+
+inputs:
+  spec-file:
+    description: 'Path to the spec file to verify against'
+    required: true
+    default: 'specs.yaml'
+  path:
+    description: 'Path to the project directory'
+    required: false
+    default: '.'
+  language:
+    description: 'Language to analyze (auto, java, csharp)'
+    required: false
+    default: 'auto'
+  version:
+    description: 'pecto version to install'
+    required: false
+    default: 'latest'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      shell: bash
+
+    - name: Cache pecto binary
+      uses: actions/cache@v4
+      with:
+        path: ~/.cargo/bin/pecto
+        key: pecto-${{ inputs.version }}-${{ runner.os }}
+
+    - name: Install pecto
+      shell: bash
+      run: |
+        if ! command -v pecto &> /dev/null; then
+          cargo install pecto
+        fi
+
+    - name: Run pecto verify
+      shell: bash
+      run: |
+        pecto verify ${{ inputs.spec-file }} \
+          --path ${{ inputs.path }} \
+          --language ${{ inputs.language }}
