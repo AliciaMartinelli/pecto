@@ -12,6 +12,7 @@ path = "src/main.rs"
 [dependencies]
 pecto-core = { path = "../pecto-core" }
 pecto-java = { path = "../pecto-java" }
+pecto-csharp = { path = "../pecto-csharp" }
 clap = { workspace = true }
 anyhow = { workspace = true }
 owo-colors = { workspace = true }

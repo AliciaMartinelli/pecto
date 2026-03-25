@@ -1,15 +1,27 @@
 use anyhow::{Context, Result};
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use owo_colors::OwoColorize;
-use std::path::PathBuf;
+use pecto_core::model::ProjectSpec;
+use std::path::{Path, PathBuf};
 
 #[derive(Parser)]
 #[command(name = "pecto")]
 #[command(about = "Extract behavior specs from code through static analysis")]
 #[command(version)]
 struct Cli {
+    /// Language to analyze (auto-detected if not specified)
+    #[arg(short, long, global = true, default_value = "auto")]
+    language: Language,
+
     #[command(subcommand)]
     command: Commands,
+}
+
+#[derive(Debug, Clone, ValueEnum)]
+enum Language {
+    Auto,
+    Java,
+    Csharp,
 }
 
 #[derive(Subcommand)]
@@ -82,32 +94,96 @@ fn main() -> Result<()> {
             output,
             verbose,
             quiet,
-        } => cmd_init(&path, &format, output.as_deref(), verbose, quiet),
-        Commands::Show { name, path } => cmd_show(&name, &path),
-        Commands::Verify { spec, path } => cmd_verify(&spec, &path),
-        Commands::Diff { base, head, path } => cmd_diff(&base, &head, &path),
+        } => cmd_init(
+            &path,
+            &format,
+            output.as_deref(),
+            verbose,
+            quiet,
+            &cli.language,
+        ),
+        Commands::Show { name, path } => cmd_show(&name, &path, &cli.language),
+        Commands::Verify { spec, path } => cmd_verify(&spec, &path, &cli.language),
+        Commands::Diff { base, head, path } => cmd_diff(&base, &head, &path, &cli.language),
+    }
+}
+
+/// Detect project language from files in the directory.
+fn detect_language(path: &Path) -> Result<Language> {
+    // Check for project files
+    for entry in walkdir::WalkDir::new(path)
+        .max_depth(3)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
+        let name = entry.file_name().to_string_lossy();
+        if name.ends_with(".csproj") || name.ends_with(".sln") {
+            return Ok(Language::Csharp);
+        }
+        if name == "pom.xml" || name == "build.gradle" || name == "build.gradle.kts" {
+            return Ok(Language::Java);
+        }
+    }
+
+    // Fallback: count file extensions
+    let mut java_count = 0usize;
+    let mut cs_count = 0usize;
+    for entry in walkdir::WalkDir::new(path)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
+        if let Some(ext) = entry.path().extension() {
+            if ext == "java" {
+                java_count += 1;
+            } else if ext == "cs" {
+                cs_count += 1;
+            }
+        }
+    }
+
+    if cs_count > java_count && cs_count > 0 {
+        Ok(Language::Csharp)
+    } else if java_count > 0 {
+        Ok(Language::Java)
+    } else {
+        anyhow::bail!("Could not detect project language. Use --language java or --language csharp")
+    }
+}
+
+/// Analyze a project using the appropriate language analyzer.
+fn analyze(path: &Path, language: &Language) -> Result<ProjectSpec> {
+    let abs_path =
+        std::fs::canonicalize(path).with_context(|| format!("Cannot find: {}", path.display()))?;
+
+    let lang = match language {
+        Language::Auto => detect_language(&abs_path)?,
+        other => other.clone(),
+    };
+
+    match lang {
+        Language::Java => pecto_java::analyze_project(&abs_path)
+            .map_err(|e| anyhow::anyhow!("{}", e))
+            .context("Java analysis failed"),
+        Language::Csharp => pecto_csharp::analyze_project(&abs_path)
+            .map_err(|e| anyhow::anyhow!("{}", e))
+            .context("C# analysis failed"),
+        Language::Auto => unreachable!(),
     }
 }
 
 fn cmd_init(
-    path: &PathBuf,
+    path: &Path,
     format: &str,
-    output: Option<&std::path::Path>,
+    output: Option<&Path>,
     verbose: bool,
     quiet: bool,
+    language: &Language,
 ) -> Result<()> {
-    let abs_path = std::fs::canonicalize(path)
-        .with_context(|| format!("Cannot find directory: {}", path.display()))?;
-
     if !quiet {
-        eprintln!(
-            "{} Analyzing {}...",
-            "pecto".bold().cyan(),
-            abs_path.display()
-        );
+        eprintln!("{} Analyzing {}...", "pecto".bold().cyan(), path.display());
     }
 
-    let spec = pecto_java::analyze_project(&abs_path).with_context(|| "Analysis failed")?;
+    let spec = analyze(path, language)?;
 
     if !quiet {
         let total_endpoints: usize = spec.capabilities.iter().map(|c| c.endpoints.len()).sum();
@@ -186,11 +262,8 @@ fn cmd_init(
     Ok(())
 }
 
-fn cmd_show(name: &str, path: &PathBuf) -> Result<()> {
-    let abs_path = std::fs::canonicalize(path)
-        .with_context(|| format!("Cannot find directory: {}", path.display()))?;
-
-    let spec = pecto_java::analyze_project(&abs_path).with_context(|| "Analysis failed")?;
+fn cmd_show(name: &str, path: &Path, language: &Language) -> Result<()> {
+    let spec = analyze(path, language)?;
 
     let capability = spec
         .capabilities
@@ -217,10 +290,7 @@ fn cmd_show(name: &str, path: &PathBuf) -> Result<()> {
     Ok(())
 }
 
-fn cmd_verify(spec_path: &PathBuf, path: &PathBuf) -> Result<()> {
-    let abs_path = std::fs::canonicalize(path)
-        .with_context(|| format!("Cannot find directory: {}", path.display()))?;
-
+fn cmd_verify(spec_path: &Path, path: &Path, language: &Language) -> Result<()> {
     let spec_content = std::fs::read_to_string(spec_path)
         .with_context(|| format!("Cannot read spec file: {}", spec_path.display()))?;
 
@@ -234,10 +304,10 @@ fn cmd_verify(spec_path: &PathBuf, path: &PathBuf) -> Result<()> {
         "{} Verifying {} against {}...",
         "pecto".bold().cyan(),
         spec_path.display(),
-        abs_path.display()
+        path.display()
     );
 
-    let current_spec = pecto_java::analyze_project(&abs_path).with_context(|| "Analysis failed")?;
+    let current_spec = analyze(path, language)?;
 
     let current_str = match format {
         "json" => pecto_core::output::to_json(&current_spec)
@@ -270,9 +340,14 @@ fn cmd_verify(spec_path: &PathBuf, path: &PathBuf) -> Result<()> {
     std::process::exit(1);
 }
 
-fn cmd_diff(base: &str, head: &str, path: &PathBuf) -> Result<()> {
+fn cmd_diff(base: &str, head: &str, path: &PathBuf, language: &Language) -> Result<()> {
+    // Detect language from the original project dir before archiving
     let abs_path = std::fs::canonicalize(path)
         .with_context(|| format!("Cannot find directory: {}", path.display()))?;
+    let resolved_lang = match language {
+        Language::Auto => detect_language(&abs_path)?,
+        other => other.clone(),
+    };
 
     eprintln!("{} Comparing {} → {}...", "pecto".bold().cyan(), base, head);
 
@@ -287,10 +362,8 @@ fn cmd_diff(base: &str, head: &str, path: &PathBuf) -> Result<()> {
     export_git_ref(&abs_path, base, &base_dir)?;
     export_git_ref(&abs_path, head, &head_dir)?;
 
-    let base_spec =
-        pecto_java::analyze_project(&base_dir).with_context(|| "Failed to analyze base ref")?;
-    let head_spec =
-        pecto_java::analyze_project(&head_dir).with_context(|| "Failed to analyze head ref")?;
+    let base_spec = analyze(&base_dir, &resolved_lang)?;
+    let head_spec = analyze(&head_dir, &resolved_lang)?;
 
     let base_yaml =
         pecto_core::output::to_yaml(&base_spec).context("Failed to serialize base spec")?;
