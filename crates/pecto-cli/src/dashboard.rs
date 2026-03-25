@@ -428,7 +428,6 @@ if (allDeps.length > 0) {{
     showDetail(d.id);
   }});
 
-  let fitted = false;
   sim.on('tick', () => {{
     link.attr('x1', d => d.source.x).attr('y1', d => d.source.y)
         .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
@@ -436,10 +435,8 @@ if (allDeps.length > 0) {{
     domainLabels.attr('x', d => domainCenters[d]?.x || 0).attr('y', d => (domainCenters[d]?.y || 0) - 10);
   }});
 
-  // Auto zoom-to-fit after simulation settles
-  sim.on('end', () => {{
-    if (fitted) return;
-    fitted = true;
+  // Auto zoom-to-fit after 2 seconds
+  setTimeout(() => {{
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     nodes.forEach(n => {{
       if (n.x < minX) minX = n.x;
@@ -449,13 +446,13 @@ if (allDeps.length > 0) {{
     }});
     const bw = maxX - minX + 100;
     const bh = maxY - minY + 100;
-    const scale = Math.min(width / bw, height / bh, 1.5) * 0.9;
+    const scale = Math.min(width / bw, height / bh, 1.5) * 0.85;
     const tx = width / 2 - (minX + maxX) / 2 * scale;
     const ty = height / 2 - (minY + maxY) / 2 * scale;
-    svg.transition().duration(500).call(
+    svg.transition().duration(800).call(
       zoomBehavior.transform, d3.zoomIdentity.translate(tx, ty).scale(scale)
     );
-  }});
+  }}, 2000);
 }} else {{
   svg.append('text').attr('x', width/2).attr('y', height/2).attr('text-anchor', 'middle')
     .attr('fill', '#475569').attr('font-size', 14).text('No dependencies to visualize');
