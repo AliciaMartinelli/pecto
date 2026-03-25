@@ -61,6 +61,13 @@ pub fn analyze_project(path: &Path) -> Result<ProjectSpec, JavaAnalysisError> {
         {
             spec.capabilities.push(capability);
         }
+
+        // Repository extraction
+        if let Some(capability) = extractors::repository::extract(file)
+            && !capability.is_empty()
+        {
+            spec.capabilities.push(capability);
+        }
     }
 
     Ok(spec)
