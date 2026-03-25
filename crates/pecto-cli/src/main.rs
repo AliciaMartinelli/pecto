@@ -69,6 +69,34 @@ enum Commands {
         path: PathBuf,
     },
 
+    /// Show domain clusters (grouped capabilities)
+    Domains {
+        /// Path to the project directory
+        #[arg(default_value = ".")]
+        path: PathBuf,
+    },
+
+    /// Show dependency graph
+    Graph {
+        /// Path to the project directory
+        #[arg(default_value = ".")]
+        path: PathBuf,
+
+        /// Output format: text, dot, json
+        #[arg(short, long, default_value = "text")]
+        format: String,
+    },
+
+    /// Show impact of changing a capability
+    Impact {
+        /// Capability name to analyze
+        name: String,
+
+        /// Path to the project directory
+        #[arg(short, long, default_value = ".")]
+        path: PathBuf,
+    },
+
     /// Show behavior changes between two git refs
     Diff {
         /// First git ref (e.g., main, HEAD~1, a commit hash)
@@ -103,6 +131,9 @@ fn main() -> Result<()> {
             &cli.language,
         ),
         Commands::Show { name, path } => cmd_show(&name, &path, &cli.language),
+        Commands::Domains { path } => cmd_domains(&path, &cli.language),
+        Commands::Graph { path, format } => cmd_graph(&path, &format, &cli.language),
+        Commands::Impact { name, path } => cmd_impact(&name, &path, &cli.language),
         Commands::Verify { spec, path } => cmd_verify(&spec, &path, &cli.language),
         Commands::Diff { base, head, path } => cmd_diff(&base, &head, &path, &cli.language),
     }
@@ -160,15 +191,20 @@ fn analyze(path: &Path, language: &Language) -> Result<ProjectSpec> {
         other => other.clone(),
     };
 
-    match lang {
+    let mut spec = match lang {
         Language::Java => pecto_java::analyze_project(&abs_path)
             .map_err(|e| anyhow::anyhow!("{}", e))
-            .context("Java analysis failed"),
+            .context("Java analysis failed")?,
         Language::Csharp => pecto_csharp::analyze_project(&abs_path)
             .map_err(|e| anyhow::anyhow!("{}", e))
-            .context("C# analysis failed"),
+            .context("C# analysis failed")?,
         Language::Auto => unreachable!(),
-    }
+    };
+
+    // Post-processing: cluster capabilities into domains
+    pecto_core::domains::cluster_domains(&mut spec);
+
+    Ok(spec)
 }
 
 fn cmd_init(
@@ -338,6 +374,149 @@ fn cmd_verify(spec_path: &Path, path: &Path, language: &Language) -> Result<()> 
     }
 
     std::process::exit(1);
+}
+
+fn cmd_domains(path: &Path, language: &Language) -> Result<()> {
+    let spec = analyze(path, language)?;
+
+    if spec.domains.is_empty() {
+        eprintln!("{} No domains found", "!".yellow());
+        return Ok(());
+    }
+
+    for domain in &spec.domains {
+        println!(
+            "{} ({})",
+            domain.name.bold(),
+            format!("{} capabilities", domain.capabilities.len()).dimmed()
+        );
+        for cap in &domain.capabilities {
+            println!("  - {}", cap);
+        }
+        if !domain.external_dependencies.is_empty() {
+            println!(
+                "  {} {}",
+                "depends on:".dimmed(),
+                domain.external_dependencies.join(", ").cyan()
+            );
+        }
+        println!();
+    }
+
+    Ok(())
+}
+
+fn cmd_graph(path: &Path, format: &str, language: &Language) -> Result<()> {
+    let spec = analyze(path, language)?;
+
+    if spec.dependencies.is_empty() {
+        eprintln!("{} No dependencies found", "!".yellow());
+        return Ok(());
+    }
+
+    match format {
+        "dot" => {
+            println!("digraph pecto {{");
+            println!("  rankdir=LR;");
+            println!("  node [shape=box, style=rounded];");
+            for dep in &spec.dependencies {
+                println!(
+                    "  \"{}\" -> \"{}\" [label=\"{:?}\"];",
+                    dep.from, dep.to, dep.kind
+                );
+            }
+            println!("}}");
+        }
+        "json" => {
+            let json =
+                serde_json::to_string_pretty(&spec.dependencies).context("Failed to serialize")?;
+            println!("{json}");
+        }
+        _ => {
+            // Text format
+            for dep in &spec.dependencies {
+                println!(
+                    "{} {} {} {}",
+                    dep.from.bold(),
+                    "→".dimmed(),
+                    dep.to.cyan(),
+                    format!("({:?})", dep.kind).dimmed()
+                );
+                for reference in &dep.references {
+                    println!("    {}", reference.dimmed());
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn cmd_impact(name: &str, path: &Path, language: &Language) -> Result<()> {
+    let spec = analyze(path, language)?;
+
+    // Find all capabilities that match the name
+    let matching: Vec<&str> = spec
+        .capabilities
+        .iter()
+        .filter(|c| c.name.contains(name))
+        .map(|c| c.name.as_str())
+        .collect();
+
+    if matching.is_empty() {
+        eprintln!(
+            "{} No capability matching '{}' found",
+            "✗".bold().red(),
+            name
+        );
+        return Ok(());
+    }
+
+    eprintln!("{} Impact analysis for '{}'\n", "pecto".bold().cyan(), name);
+
+    // BFS: find all capabilities that depend on the matching ones (reverse traversal)
+    let mut impacted: Vec<(String, Vec<String>)> = Vec::new();
+    let mut visited = std::collections::HashSet::new();
+    let mut queue: std::collections::VecDeque<(String, Vec<String>)> =
+        std::collections::VecDeque::new();
+
+    for m in &matching {
+        queue.push_back((m.to_string(), vec![m.to_string()]));
+        visited.insert(m.to_string());
+    }
+
+    while let Some((current, path_so_far)) = queue.pop_front() {
+        // Find all capabilities that depend ON current (reverse edges)
+        for dep in &spec.dependencies {
+            if dep.to == current && !visited.contains(&dep.from) {
+                visited.insert(dep.from.clone());
+                let mut new_path = path_so_far.clone();
+                new_path.push(dep.from.clone());
+                queue.push_back((dep.from.clone(), new_path.clone()));
+                impacted.push((dep.from.clone(), new_path));
+            }
+        }
+    }
+
+    if impacted.is_empty() {
+        println!(
+            "{} No other capabilities depend on '{}'",
+            "✓".bold().green(),
+            name
+        );
+    } else {
+        println!(
+            "{} {} capabilities would be affected:\n",
+            "!".bold().yellow(),
+            impacted.len()
+        );
+        for (cap, trace) in &impacted {
+            let trace_str = trace.join(" → ");
+            println!("  {} {}", cap.bold().red(), trace_str.dimmed());
+        }
+    }
+
+    Ok(())
 }
 
 fn cmd_diff(base: &str, head: &str, path: &PathBuf, language: &Language) -> Result<()> {
