@@ -302,6 +302,16 @@ if (allDeps.length > 0) {{
   const g = svg.append('g');
   svg.call(d3.zoom().scaleExtent([0.1, 8]).on('zoom', (e) => g.attr('transform', e.transform)));
 
+  // Domain background labels
+  const domainLabels = g.append('g').selectAll('text').data(domainNames).join('text')
+    .attr('x', d => domainCenters[d]?.x || 0)
+    .attr('y', d => (domainCenters[d]?.y || 0) - 10)
+    .attr('text-anchor', 'middle')
+    .attr('fill', '#1e293b')
+    .attr('font-size', 18)
+    .attr('font-weight', 700)
+    .text(d => d);
+
   g.append('defs').append('marker')
     .attr('id', 'arrow').attr('viewBox', '0 -5 10 10')
     .attr('refX', 22).attr('refY', 0).attr('markerWidth', 6).attr('markerHeight', 6)
@@ -318,13 +328,24 @@ if (allDeps.length > 0) {{
     }};
   }});
 
+  // Spread domain centers more — use a larger grid
+  const gridW = width * 1.5;
+  const gridH = height * 1.5;
+  const offsetX = (width - gridW) / 2;
+  const offsetY = (height - gridH) / 2;
+  Object.keys(domainCenters).forEach((d, i) => {{
+    domainCenters[d] = {{
+      x: offsetX + (i % cols + 0.5) * (gridW / cols),
+      y: offsetY + (Math.floor(i / cols) + 0.5) * (gridH / Math.ceil(domainNames.length / cols))
+    }};
+  }});
+
   const sim = d3.forceSimulation(nodes)
-    .force('link', d3.forceLink(links).id(d => d.id).distance(80).strength(0.3))
-    .force('charge', d3.forceManyBody().strength(-150))
-    .force('center', d3.forceCenter(width / 2, height / 2).strength(0.05))
-    .force('collision', d3.forceCollide().radius(d => d.size + 8))
-    .force('cluster', d3.forceX(d => domainCenters[d.domain]?.x || width/2).strength(0.15))
-    .force('clusterY', d3.forceY(d => domainCenters[d.domain]?.y || height/2).strength(0.15));
+    .force('link', d3.forceLink(links).id(d => d.id).distance(50).strength(0.15))
+    .force('charge', d3.forceManyBody().strength(-80))
+    .force('collision', d3.forceCollide().radius(d => d.size + 5))
+    .force('cluster', d3.forceX(d => domainCenters[d.domain]?.x || width/2).strength(0.7))
+    .force('clusterY', d3.forceY(d => domainCenters[d.domain]?.y || height/2).strength(0.7));
 
   const link = g.append('g').selectAll('line').data(links).join('line')
     .attr('class', d => 'link ' + d.kind);
