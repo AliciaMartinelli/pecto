@@ -9,6 +9,10 @@ pub struct ProjectSpec {
     pub analyzed: Option<String>,
     pub files_analyzed: usize,
     pub capabilities: Vec<Capability>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub dependencies: Vec<DependencyEdge>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub domains: Vec<Domain>,
 }
 
 /// A capability groups related behaviors (e.g., "user-authentication", "order-management").
@@ -167,6 +171,35 @@ pub struct ScheduledTask {
     pub description: Option<String>,
 }
 
+/// A dependency edge between two capabilities.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DependencyEdge {
+    pub from: String,
+    pub to: String,
+    pub kind: DependencyKind,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub references: Vec<String>,
+}
+
+/// The kind of dependency between capabilities.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum DependencyKind {
+    Calls,
+    Queries,
+    Listens,
+    Validates,
+}
+
+/// A domain groups related capabilities by business concern.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Domain {
+    pub name: String,
+    pub capabilities: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub external_dependencies: Vec<String>,
+}
+
 impl ProjectSpec {
     pub fn new(name: impl Into<String>) -> Self {
         Self {
@@ -174,6 +207,8 @@ impl ProjectSpec {
             analyzed: Some(chrono_now()),
             files_analyzed: 0,
             capabilities: Vec::new(),
+            dependencies: Vec::new(),
+            domains: Vec::new(),
         }
     }
 }
