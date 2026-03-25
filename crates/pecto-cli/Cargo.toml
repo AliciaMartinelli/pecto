@@ -21,3 +21,5 @@ rayon = { workspace = true }
 serde_yaml = { workspace = true }
 serde_json = { workspace = true }
 similar = { workspace = true }
+axum = { workspace = true }
+tokio = { workspace = true }

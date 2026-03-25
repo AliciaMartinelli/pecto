@@ -1,4 +1,5 @@
 mod report;
+mod serve;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
@@ -117,6 +118,17 @@ enum Commands {
         path: PathBuf,
     },
 
+    /// Start an interactive web dashboard
+    Serve {
+        /// Path to the project directory
+        #[arg(default_value = ".")]
+        path: PathBuf,
+
+        /// Port to listen on
+        #[arg(long, default_value = "4321")]
+        port: u16,
+    },
+
     /// Show behavior changes between two git refs
     Diff {
         /// First git ref (e.g., main, HEAD~1, a commit hash)
@@ -156,6 +168,7 @@ fn main() -> Result<()> {
         Commands::Graph { path, format } => cmd_graph(&path, &format, &cli.language),
         Commands::Report { path, output } => cmd_report(&path, &output, &cli.language),
         Commands::Impact { name, path } => cmd_impact(&name, &path, &cli.language),
+        Commands::Serve { path, port } => cmd_serve(&path, port, &cli.language),
         Commands::Verify { spec, path } => cmd_verify(&spec, &path, &cli.language),
         Commands::Diff { base, head, path } => cmd_diff(&base, &head, &path, &cli.language),
     }
@@ -396,6 +409,12 @@ fn cmd_verify(spec_path: &Path, path: &Path, language: &Language) -> Result<()> 
     }
 
     std::process::exit(1);
+}
+
+fn cmd_serve(path: &Path, port: u16, language: &Language) -> Result<()> {
+    let spec = analyze(path, language)?;
+    eprintln!("{} Starting pecto dashboard...\n", "pecto".bold().cyan(),);
+    serve::serve(spec, port)
 }
 
 fn cmd_report(path: &Path, output: &Path, language: &Language) -> Result<()> {
