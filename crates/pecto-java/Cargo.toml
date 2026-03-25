@@ -11,3 +11,4 @@ tree-sitter = { workspace = true }
 tree-sitter-java = { workspace = true }
 thiserror = { workspace = true }
 walkdir = { workspace = true }
+rayon = { workspace = true }
