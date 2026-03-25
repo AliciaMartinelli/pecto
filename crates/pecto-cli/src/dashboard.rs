@@ -302,7 +302,8 @@ if (allDeps.length > 0) {{
   const links = allDeps.map(d => ({{ source: d.from, target: d.to, kind: d.kind || 'calls' }}));
 
   const g = svg.append('g');
-  svg.call(d3.zoom().scaleExtent([0.1, 8]).on('zoom', (e) => g.attr('transform', e.transform)));
+  const zoomBehavior = d3.zoom().scaleExtent([0.1, 8]).on('zoom', (e) => g.attr('transform', e.transform));
+  svg.call(zoomBehavior);
 
   // Domain background labels
   const domainLabels = g.append('g').selectAll('text').data(domainNames).join('text')
@@ -452,8 +453,7 @@ if (allDeps.length > 0) {{
     const tx = width / 2 - (minX + maxX) / 2 * scale;
     const ty = height / 2 - (minY + maxY) / 2 * scale;
     svg.transition().duration(500).call(
-      d3.zoom().scaleExtent([0.1, 8]).on('zoom', (e) => g.attr('transform', e.transform))
-        .transform, d3.zoomIdentity.translate(tx, ty).scale(scale)
+      zoomBehavior.transform, d3.zoomIdentity.translate(tx, ty).scale(scale)
     );
   }});
 }} else {{
