@@ -55,7 +55,7 @@ body {{ font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', san
 .tooltip .tt-name {{ font-weight: 600; font-size: 13px; margin-bottom: 4px; }}
 .tooltip .tt-type {{ color: #64748b; font-size: 10px; margin-bottom: 6px; }}
 .tooltip .tt-stat {{ color: #94a3b8; }}
-.tooltip .tt-file {{ color: #475569; font-size: 10px; margin-top: 4px; }}
+.tooltip .tt-file {{ color: #475569; font-size: 10px; margin-top: 4px; word-break: break-all; }}
 
 /* Legend */
 .legend {{ position: absolute; bottom: 16px; left: 16px; background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 10px 14px; font-size: 10px; z-index: 10; }}
