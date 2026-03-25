@@ -262,7 +262,7 @@ function showDetail(name) {{
 renderOverview('');
 searchEl.addEventListener('input', e => renderOverview(e.target.value));
 
-// Graph
+// Graph — Two-level view: Domain bubbles (macro) → Node detail (micro)
 const allDeps = spec.dependencies || [];
 const svg = d3.select('#svg');
 const graphEl = document.getElementById('graph');
@@ -271,86 +271,198 @@ const height = graphEl.clientHeight;
 svg.attr('viewBox', [0, 0, width, height]);
 
 const tooltip = document.getElementById('tooltip');
+const filterEl = document.getElementById('domain-filter');
 
 // Build domain lookup
 const domainOf = {{}};
 (spec.domains || []).forEach(d => d.capabilities.forEach(c => domainOf[c] = d.name));
 const domainNames = [...new Set(Object.values(domainOf))].sort();
 
-// Domain filter buttons
-const filterEl = document.getElementById('domain-filter');
-if (domainNames.length > 1) {{
-  let fhtml = '<span style="color:#64748b;font-size:10px;margin-right:6px">Filter:</span>';
-  fhtml += `<button class="filter-btn active" onclick="filterDomain(null)">All</button>`;
-  domainNames.forEach(d => {{
-    fhtml += `<button class="filter-btn" onclick="filterDomain('${{d}}')">${{d}}</button>`;
-  }});
-  filterEl.innerHTML = fhtml;
+const g = svg.append('g');
+const zoomBehavior = d3.zoom().scaleExtent([0.1, 8]).on('zoom', (e) => g.attr('transform', e.transform));
+svg.call(zoomBehavior);
+
+g.append('defs').append('marker')
+  .attr('id', 'arrow').attr('viewBox', '0 -5 10 10')
+  .attr('refX', 28).attr('refY', 0).attr('markerWidth', 6).attr('markerHeight', 6)
+  .attr('orient', 'auto')
+  .append('path').attr('d', 'M0,-5L10,0L0,5').attr('fill', '#475569');
+
+const USE_MACRO = spec.capabilities.length > 25;
+
+function clearGraph() {{
+  g.selectAll('*:not(defs)').remove();
+  // Re-add marker after clear
+  if (!g.select('#arrow').size()) {{
+    g.append('defs').append('marker')
+      .attr('id', 'arrow').attr('viewBox', '0 -5 10 10')
+      .attr('refX', 28).attr('refY', 0).attr('markerWidth', 6).attr('markerHeight', 6)
+      .attr('orient', 'auto')
+      .append('path').attr('d', 'M0,-5L10,0L0,5').attr('fill', '#475569');
+  }}
 }}
 
-let activeDomain = null;
+// ===================== MACRO VIEW: Domain Bubbles =====================
+function showMacroView() {{
+  clearGraph();
+  filterEl.innerHTML = '';
 
-if (allDeps.length > 0) {{
-  // Include ALL capabilities as nodes (not just those with deps)
-  const depNodeIds = new Set(allDeps.flatMap(d => [d.from, d.to]));
-  const allNodeIds = [...new Set([...depNodeIds, ...spec.capabilities.map(c => c.name)])];
-
-  const nodes = allNodeIds.map(id => {{
-    const cap = spec.capabilities.find(c => c.name === id);
-    return {{ id, ...getCapType(cap), size: getCapSize(cap), domain: domainOf[id] || 'other' }};
-  }});
-  const links = allDeps.map(d => ({{ source: d.from, target: d.to, kind: d.kind || 'calls' }}));
-
-  const g = svg.append('g');
-  const zoomBehavior = d3.zoom().scaleExtent([0.1, 8]).on('zoom', (e) => g.attr('transform', e.transform));
-  svg.call(zoomBehavior);
-
-  // Domain cluster centers — must be computed before labels
-  const domainCenters = {{}};
-  const cols = Math.ceil(Math.sqrt(domainNames.length));
-  domainNames.forEach((d, i) => {{
-    domainCenters[d] = {{
-      x: (i % cols + 0.5) * (width / cols),
-      y: (Math.floor(i / cols) + 0.5) * (height / Math.ceil(domainNames.length / cols))
-    }};
+  // Build domain nodes
+  const domainNodes = (spec.domains || []).map(d => {{
+    const caps = d.capabilities.map(c => spec.capabilities.find(x => x.name === c)).filter(Boolean);
+    const eps = caps.reduce((s, c) => s + (c.endpoints?.length || 0), 0);
+    const ops = caps.reduce((s, c) => s + (c.operations?.length || 0), 0);
+    const ents = caps.reduce((s, c) => s + (c.entities?.length || 0), 0);
+    const size = Math.min(50, Math.max(20, 15 + d.capabilities.length * 3));
+    return {{ id: d.name, count: d.capabilities.length, eps, ops, ents, size, extDeps: d.external_dependencies || [] }};
   }});
 
-  // Keep domain centers within viewport with padding
-  const pad = 80;
-  Object.keys(domainCenters).forEach((d, i) => {{
-    domainCenters[d] = {{
-      x: pad + (i % cols + 0.5) * ((width - pad*2) / cols),
-      y: pad + (Math.floor(i / cols) + 0.5) * ((height - pad*2) / Math.ceil(domainNames.length / cols))
-    }};
+  // Build domain-level edges
+  const domainEdges = [];
+  const edgeSet = new Set();
+  (spec.domains || []).forEach(d => {{
+    (d.external_dependencies || []).forEach(ext => {{
+      const key = d.name + '>' + ext;
+      if (!edgeSet.has(key)) {{
+        edgeSet.add(key);
+        domainEdges.push({{ source: d.name, target: ext }});
+      }}
+    }});
   }});
 
-  // Domain background labels
-  const domainLabels = g.append('g').selectAll('text').data(domainNames).join('text')
-    .attr('x', d => domainCenters[d]?.x || 0)
-    .attr('y', d => (domainCenters[d]?.y || 0) - 10)
-    .attr('text-anchor', 'middle')
+  const sim = d3.forceSimulation(domainNodes)
+    .force('link', d3.forceLink(domainEdges).id(d => d.id).distance(150))
+    .force('charge', d3.forceManyBody().strength(-400))
+    .force('center', d3.forceCenter(width / 2, height / 2))
+    .force('collision', d3.forceCollide().radius(d => d.size + 20));
+
+  const link = g.append('g').selectAll('line').data(domainEdges).join('line')
+    .attr('class', 'link calls');
+
+  const node = g.append('g').selectAll('g').data(domainNodes).join('g')
+    .attr('cursor', 'pointer')
+    .call(d3.drag()
+      .on('start', (e, d) => {{ if (!e.active) sim.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; }})
+      .on('drag', (e, d) => {{ d.fx = e.x; d.fy = e.y; }})
+      .on('end', (e, d) => {{ if (!e.active) sim.alphaTarget(0); d.fx = null; d.fy = null; }}));
+
+  // Bubble
+  node.append('circle')
+    .attr('r', d => d.size)
     .attr('fill', '#1e293b')
-    .attr('font-size', 18)
-    .attr('font-weight', 700)
-    .text(d => d);
+    .attr('stroke', '#334155')
+    .attr('stroke-width', 2);
 
-  g.append('defs').append('marker')
-    .attr('id', 'arrow').attr('viewBox', '0 -5 10 10')
-    .attr('refX', 22).attr('refY', 0).attr('markerWidth', 6).attr('markerHeight', 6)
-    .attr('orient', 'auto')
-    .append('path').attr('d', 'M0,-5L10,0L0,5').attr('fill', '#475569');
+  // Colored ring showing composition
+  node.append('circle')
+    .attr('r', d => d.size - 3)
+    .attr('fill', 'none')
+    .attr('stroke', d => {{
+      if (d.eps > 0) return '#E185C8';
+      if (d.ents > 0) return '#C9C9EB';
+      return '#34d399';
+    }})
+    .attr('stroke-width', 3)
+    .attr('opacity', 0.6);
 
-  const sim = d3.forceSimulation(nodes)
-    .force('link', d3.forceLink(links).id(d => d.id).distance(40).strength(0.1))
-    .force('charge', d3.forceManyBody().strength(-60))
-    .force('collision', d3.forceCollide().radius(d => d.size + 4))
-    .force('cluster', d3.forceX(d => domainCenters[d.domain]?.x || width/2).strength(0.6))
-    .force('clusterY', d3.forceY(d => domainCenters[d.domain]?.y || height/2).strength(0.6));
+  // Domain name
+  node.append('text')
+    .text(d => d.id)
+    .attr('text-anchor', 'middle')
+    .attr('y', -4)
+    .attr('fill', '#e2e8f0')
+    .attr('font-size', 11)
+    .attr('font-weight', 600);
 
-  const link = g.append('g').selectAll('line').data(links).join('line')
+  // Count
+  node.append('text')
+    .text(d => d.count + ' cap')
+    .attr('text-anchor', 'middle')
+    .attr('y', 10)
+    .attr('fill', '#64748b')
+    .attr('font-size', 9);
+
+  // Hover tooltip
+  node.on('mouseenter', (event, d) => {{
+    let tt = `<div class="tt-name">${{d.id}}</div>`;
+    tt += `<div class="tt-type">${{d.count}} capabilities</div>`;
+    if (d.eps) tt += `<div class="tt-stat">${{d.eps}} endpoints</div>`;
+    if (d.ops) tt += `<div class="tt-stat">${{d.ops}} operations</div>`;
+    if (d.ents) tt += `<div class="tt-stat">${{d.ents}} entities</div>`;
+    if (d.extDeps.length) tt += `<div class="tt-stat">depends on: ${{d.extDeps.join(', ')}}</div>`;
+    tt += `<div class="tt-file">Click to drill in</div>`;
+    tooltip.innerHTML = tt;
+    tooltip.style.display = 'block';
+    tooltip.style.left = (event.clientX + 14) + 'px';
+    tooltip.style.top = (event.clientY - 10) + 'px';
+  }})
+  .on('mousemove', (event) => {{
+    tooltip.style.left = (event.clientX + 14) + 'px';
+    tooltip.style.top = (event.clientY - 10) + 'px';
+  }})
+  .on('mouseleave', () => {{ tooltip.style.display = 'none'; }})
+  .on('click', (event, d) => {{ showDomainDetail(d.id); }});
+
+  sim.on('tick', () => {{
+    link.attr('x1', d => d.source.x).attr('y1', d => d.source.y)
+        .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
+    node.attr('transform', d => `translate(${{d.x}},${{d.y}})`);
+  }});
+}}
+
+// ===================== MICRO VIEW: Single Domain =====================
+function showDomainDetail(domainName) {{
+  clearGraph();
+  svg.transition().duration(300).call(zoomBehavior.transform, d3.zoomIdentity);
+
+  // Back button in filter area
+  filterEl.innerHTML = `<button class="filter-btn active" onclick="showMacroView()"> All Domains</button><span style="color:#94a3b8;font-size:12px;margin-left:8px;font-weight:600">${{domainName}}</span>`;
+
+  const domain = (spec.domains || []).find(d => d.name === domainName);
+  if (!domain) return;
+
+  const capNames = new Set(domain.capabilities);
+  const caps = spec.capabilities.filter(c => capNames.has(c.name));
+
+  const nodes = caps.map(c => ({{ id: c.name, ...getCapType(c), size: getCapSize(c) }}));
+  const links = allDeps
+    .filter(d => capNames.has(d.from) && capNames.has(d.to))
+    .map(d => ({{ source: d.from, target: d.to, kind: d.kind || 'calls' }}));
+
+  // External deps as ghost nodes
+  const externalNodes = [];
+  const externalLinks = [];
+  allDeps.forEach(d => {{
+    if (capNames.has(d.from) && !capNames.has(d.to)) {{
+      const ghostId = '→ ' + d.to;
+      if (!externalNodes.find(n => n.id === ghostId)) {{
+        externalNodes.push({{ id: ghostId, type: 'External', color: '#334155', size: 6 }});
+      }}
+      externalLinks.push({{ source: d.from, target: ghostId, kind: d.kind || 'calls' }});
+    }}
+    if (!capNames.has(d.from) && capNames.has(d.to)) {{
+      const ghostId = d.from + ' →';
+      if (!externalNodes.find(n => n.id === ghostId)) {{
+        externalNodes.push({{ id: ghostId, type: 'External', color: '#334155', size: 6 }});
+      }}
+      externalLinks.push({{ source: ghostId, target: d.to, kind: d.kind || 'calls' }});
+    }}
+  }});
+
+  const allNodes = [...nodes, ...externalNodes];
+  const allLinks = [...links, ...externalLinks];
+
+  const sim = d3.forceSimulation(allNodes)
+    .force('link', d3.forceLink(allLinks).id(d => d.id).distance(100))
+    .force('charge', d3.forceManyBody().strength(-300))
+    .force('center', d3.forceCenter(width / 2, height / 2))
+    .force('collision', d3.forceCollide().radius(d => d.size + 15));
+
+  const link = g.append('g').selectAll('line').data(allLinks).join('line')
     .attr('class', d => 'link ' + d.kind);
 
-  const node = g.append('g').selectAll('g').data(nodes).join('g').attr('class', 'node')
+  const node = g.append('g').selectAll('g').data(allNodes).join('g').attr('class', 'node')
+    .attr('cursor', 'pointer')
     .call(d3.drag()
       .on('start', (e, d) => {{ if (!e.active) sim.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; }})
       .on('drag', (e, d) => {{ d.fx = e.x; d.fy = e.y; }})
@@ -362,58 +474,38 @@ if (allDeps.length > 0) {{
     .attr('stroke', '#1e293b')
     .attr('stroke-width', 2);
 
-  // Only show labels for larger nodes (to reduce clutter)
-  node.append('text').text(d => d.size >= 10 ? d.id : '').attr('x', d => d.size + 5).attr('y', 4)
-    .attr('fill', '#94a3b8').attr('font-size', 10);
+  node.append('text').text(d => d.id).attr('x', d => d.size + 5).attr('y', 4)
+    .attr('fill', d => d.type === 'External' ? '#475569' : '#94a3b8')
+    .attr('font-size', 11)
+    .attr('font-style', d => d.type === 'External' ? 'italic' : 'normal');
 
-  // Domain filter function
-  window.filterDomain = function(domain) {{
-    activeDomain = domain;
-    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
-    event.target.classList.add('active');
-    node.style('display', d => (!domain || d.domain === domain) ? '' : 'none');
-    link.style('display', d => {{
-      if (!domain) return '';
-      const sId = typeof d.source === 'object' ? d.source.id : d.source;
-      const tId = typeof d.target === 'object' ? d.target.id : d.target;
-      const sDomain = domainOf[sId];
-      const tDomain = domainOf[tId];
-      return (sDomain === domain || tDomain === domain) ? '' : 'none';
-    }});
-  }};
-
-  // Hover: tooltip + highlight
   node.on('mouseenter', (event, d) => {{
     const cap = spec.capabilities.find(c => c.name === d.id);
+    if (!cap) return;
     const info = getCapType(cap);
-    const eps = cap?.endpoints?.length || 0;
-    const ops = cap?.operations?.length || 0;
-    const ents = cap?.entities?.length || 0;
-    const inDeps = allDeps.filter(x => x.to === d.id).length;
-    const outDeps = allDeps.filter(x => x.from === d.id).length;
-
-    let tt = `<div class="tt-name">${{d.id}}</div>`;
-    tt += `<div class="tt-type">${{info.type}}</div>`;
-    if (eps) tt += `<div class="tt-stat">${{eps}} endpoints</div>`;
-    if (ops) tt += `<div class="tt-stat">${{ops}} operations</div>`;
-    if (ents) tt += `<div class="tt-stat">${{ents}} entities</div>`;
-    if (outDeps) tt += `<div class="tt-stat">&rarr; ${{outDeps}} dependencies</div>`;
-    if (inDeps) tt += `<div class="tt-stat">&larr; ${{inDeps}} dependents</div>`;
-    if (cap?.source) tt += `<div class="tt-file">${{cap.source}}</div>`;
-
+    let tt = `<div class="tt-name">${{d.id}}</div><div class="tt-type">${{info.type}}</div>`;
+    if (cap.endpoints?.length) tt += `<div class="tt-stat">${{cap.endpoints.length}} endpoints</div>`;
+    if (cap.operations?.length) tt += `<div class="tt-stat">${{cap.operations.length}} operations</div>`;
+    if (cap.entities?.length) tt += `<div class="tt-stat">${{cap.entities.length}} entities</div>`;
+    if (cap.source) tt += `<div class="tt-file">${{cap.source}}</div>`;
     tooltip.innerHTML = tt;
     tooltip.style.display = 'block';
     tooltip.style.left = (event.clientX + 14) + 'px';
     tooltip.style.top = (event.clientY - 10) + 'px';
 
-    // Highlight connected
     const connected = new Set([d.id]);
-    allDeps.forEach(dep => {{
-      if (dep.from === d.id) connected.add(dep.to);
-      if (dep.to === d.id) connected.add(dep.from);
+    allLinks.forEach(l => {{
+      const sId = typeof l.source === 'object' ? l.source.id : l.source;
+      const tId = typeof l.target === 'object' ? l.target.id : l.target;
+      if (sId === d.id) connected.add(tId);
+      if (tId === d.id) connected.add(sId);
     }});
     node.classed('dimmed', n => !connected.has(n.id));
-    link.classed('dimmed', l => l.source.id !== d.id && l.target.id !== d.id);
+    link.classed('dimmed', l => {{
+      const sId = typeof l.source === 'object' ? l.source.id : l.source;
+      const tId = typeof l.target === 'object' ? l.target.id : l.target;
+      return sId !== d.id && tId !== d.id;
+    }});
   }})
   .on('mousemove', (event) => {{
     tooltip.style.left = (event.clientX + 14) + 'px';
@@ -425,34 +517,73 @@ if (allDeps.length > 0) {{
     link.classed('dimmed', false);
   }})
   .on('click', (event, d) => {{
-    showDetail(d.id);
+    if (d.type !== 'External') showDetail(d.id);
   }});
 
   sim.on('tick', () => {{
     link.attr('x1', d => d.source.x).attr('y1', d => d.source.y)
         .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
     node.attr('transform', d => `translate(${{d.x}},${{d.y}})`);
-    domainLabels.attr('x', d => domainCenters[d]?.x || 0).attr('y', d => (domainCenters[d]?.y || 0) - 10);
   }});
+}}
 
-  // Auto zoom-to-fit after 2 seconds
-  setTimeout(() => {{
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    nodes.forEach(n => {{
-      if (n.x < minX) minX = n.x;
-      if (n.y < minY) minY = n.y;
-      if (n.x > maxX) maxX = n.x;
-      if (n.y > maxY) maxY = n.y;
-    }});
-    const bw = maxX - minX + 100;
-    const bh = maxY - minY + 100;
-    const scale = Math.min(width / bw, height / bh, 1.5) * 0.85;
-    const tx = width / 2 - (minX + maxX) / 2 * scale;
-    const ty = height / 2 - (minY + maxY) / 2 * scale;
-    svg.transition().duration(800).call(
-      zoomBehavior.transform, d3.zoomIdentity.translate(tx, ty).scale(scale)
-    );
-  }}, 2000);
+// ===================== CLASSIC VIEW: Small Projects =====================
+function showClassicView() {{
+  clearGraph();
+  const nodes = spec.capabilities.map(c => ({{ id: c.name, ...getCapType(c), size: getCapSize(c) }}));
+  const links = allDeps.map(d => ({{ source: d.from, target: d.to, kind: d.kind || 'calls' }}));
+
+  const sim = d3.forceSimulation(nodes)
+    .force('link', d3.forceLink(links).id(d => d.id).distance(100))
+    .force('charge', d3.forceManyBody().strength(-250))
+    .force('center', d3.forceCenter(width / 2, height / 2))
+    .force('collision', d3.forceCollide().radius(d => d.size + 15));
+
+  const link = g.append('g').selectAll('line').data(links).join('line')
+    .attr('class', d => 'link ' + (d.kind || 'calls'));
+
+  const node = g.append('g').selectAll('g').data(nodes).join('g').attr('class', 'node')
+    .attr('cursor', 'pointer')
+    .call(d3.drag()
+      .on('start', (e, d) => {{ if (!e.active) sim.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; }})
+      .on('drag', (e, d) => {{ d.fx = e.x; d.fy = e.y; }})
+      .on('end', (e, d) => {{ if (!e.active) sim.alphaTarget(0); d.fx = null; d.fy = null; }}));
+
+  node.append('circle').attr('r', d => d.size).attr('fill', d => d.color)
+    .attr('stroke', '#1e293b').attr('stroke-width', 2);
+
+  node.append('text').text(d => d.id).attr('x', d => d.size + 5).attr('y', 4)
+    .attr('fill', '#94a3b8').attr('font-size', 11);
+
+  node.on('mouseenter', (event, d) => {{
+    const cap = spec.capabilities.find(c => c.name === d.id);
+    if (!cap) return;
+    const info = getCapType(cap);
+    let tt = `<div class="tt-name">${{d.id}}</div><div class="tt-type">${{info.type}}</div>`;
+    if (cap.endpoints?.length) tt += `<div class="tt-stat">${{cap.endpoints.length}} endpoints</div>`;
+    if (cap.operations?.length) tt += `<div class="tt-stat">${{cap.operations.length}} operations</div>`;
+    if (cap.source) tt += `<div class="tt-file">${{cap.source}}</div>`;
+    tooltip.innerHTML = tt;
+    tooltip.style.display = 'block';
+    tooltip.style.left = (event.clientX + 14) + 'px';
+    tooltip.style.top = (event.clientY - 10) + 'px';
+  }})
+  .on('mousemove', (event) => {{ tooltip.style.left = (event.clientX + 14) + 'px'; tooltip.style.top = (event.clientY - 10) + 'px'; }})
+  .on('mouseleave', () => {{ tooltip.style.display = 'none'; }})
+  .on('click', (event, d) => {{ showDetail(d.id); }});
+
+  sim.on('tick', () => {{
+    link.attr('x1', d => d.source.x).attr('y1', d => d.source.y)
+        .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
+    node.attr('transform', d => `translate(${{d.x}},${{d.y}})`);
+  }});
+}}
+
+// Start the appropriate view
+if (USE_MACRO) {{
+  showMacroView();
+}} else if (allDeps.length > 0) {{
+  showClassicView();
 }} else {{
   svg.append('text').attr('x', width/2).attr('y', height/2).attr('text-anchor', 'middle')
     .attr('fill', '#475569').attr('font-size', 14).text('No dependencies to visualize');
