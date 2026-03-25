@@ -305,23 +305,7 @@ if (allDeps.length > 0) {{
   const zoomBehavior = d3.zoom().scaleExtent([0.1, 8]).on('zoom', (e) => g.attr('transform', e.transform));
   svg.call(zoomBehavior);
 
-  // Domain background labels
-  const domainLabels = g.append('g').selectAll('text').data(domainNames).join('text')
-    .attr('x', d => domainCenters[d]?.x || 0)
-    .attr('y', d => (domainCenters[d]?.y || 0) - 10)
-    .attr('text-anchor', 'middle')
-    .attr('fill', '#1e293b')
-    .attr('font-size', 18)
-    .attr('font-weight', 700)
-    .text(d => d);
-
-  g.append('defs').append('marker')
-    .attr('id', 'arrow').attr('viewBox', '0 -5 10 10')
-    .attr('refX', 22).attr('refY', 0).attr('markerWidth', 6).attr('markerHeight', 6)
-    .attr('orient', 'auto')
-    .append('path').attr('d', 'M0,-5L10,0L0,5').attr('fill', '#475569');
-
-  // Domain cluster centers
+  // Domain cluster centers — must be computed before labels
   const domainCenters = {{}};
   const cols = Math.ceil(Math.sqrt(domainNames.length));
   domainNames.forEach((d, i) => {{
@@ -339,6 +323,22 @@ if (allDeps.length > 0) {{
       y: pad + (Math.floor(i / cols) + 0.5) * ((height - pad*2) / Math.ceil(domainNames.length / cols))
     }};
   }});
+
+  // Domain background labels
+  const domainLabels = g.append('g').selectAll('text').data(domainNames).join('text')
+    .attr('x', d => domainCenters[d]?.x || 0)
+    .attr('y', d => (domainCenters[d]?.y || 0) - 10)
+    .attr('text-anchor', 'middle')
+    .attr('fill', '#1e293b')
+    .attr('font-size', 18)
+    .attr('font-weight', 700)
+    .text(d => d);
+
+  g.append('defs').append('marker')
+    .attr('id', 'arrow').attr('viewBox', '0 -5 10 10')
+    .attr('refX', 22).attr('refY', 0).attr('markerWidth', 6).attr('markerHeight', 6)
+    .attr('orient', 'auto')
+    .append('path').attr('d', 'M0,-5L10,0L0,5').attr('fill', '#475569');
 
   const sim = d3.forceSimulation(nodes)
     .force('link', d3.forceLink(links).id(d => d.id).distance(40).strength(0.1))
