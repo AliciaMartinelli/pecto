@@ -66,6 +66,12 @@ pub fn analyze_project(path: &Path) -> Result<ProjectSpec, CSharpAnalysisError> 
         {
             spec.capabilities.push(capability);
         }
+
+        if let Some(capability) = extractors::entity::extract(file, &ctx)
+            && !capability.is_empty()
+        {
+            spec.capabilities.push(capability);
+        }
     }
 
     Ok(spec)
