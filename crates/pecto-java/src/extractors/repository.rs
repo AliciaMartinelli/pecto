@@ -88,6 +88,7 @@ fn is_repository_type(text: &str) -> bool {
         || text.contains("CrudRepository")
         || text.contains("PagingAndSortingRepository")
         || text.contains("ReactiveCrudRepository")
+        || text.contains("Repository<")
 }
 
 fn extract_generic_params(text: &str) -> Option<(String, String)> {
