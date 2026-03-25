@@ -1,28 +1,19 @@
-use crate::JavaAnalysisError;
-use crate::parser::parse_java;
+use super::common::*;
+use crate::context::ParsedFile;
 use pecto_core::model::*;
 use std::collections::BTreeMap;
 use tree_sitter::Node;
 
-/// Extract a Capability from a Java source file if it contains Spring controllers.
-pub fn extract_capability(
-    source: &str,
-    file_path: &str,
-) -> Result<Option<Capability>, JavaAnalysisError> {
-    let tree = parse_java(source).ok_or_else(|| {
-        JavaAnalysisError::ParseError(file_path.to_string(), "Failed to parse Java".to_string())
-    })?;
+/// Extract a Capability from a parsed file if it contains a Spring controller.
+pub fn extract(file: &ParsedFile) -> Option<Capability> {
+    let root = file.tree.root_node();
+    let source_bytes = file.source.as_bytes();
 
-    let root = tree.root_node();
-    let source_bytes = source.as_bytes();
-
-    // Find class declarations
     for i in 0..root.named_child_count() {
         let node = root.named_child(i).unwrap();
         if node.kind() == "class_declaration" {
             let annotations = collect_annotations(&node, source_bytes);
 
-            // Check if this is a Spring REST controller
             let is_controller = annotations
                 .iter()
                 .any(|a| a.name == "RestController" || a.name == "Controller");
@@ -32,93 +23,16 @@ pub fn extract_capability(
                 let base_path = extract_request_mapping_path(&annotations);
                 let capability_name = to_kebab_case(&class_name.replace("Controller", ""));
 
-                let mut capability = Capability::new(capability_name, file_path.to_string());
+                let mut capability = Capability::new(capability_name, file.path.clone());
 
-                // Extract endpoints from methods
                 extract_endpoints_from_class(&node, source_bytes, &base_path, &mut capability);
 
-                return Ok(Some(capability));
+                return Some(capability);
             }
         }
     }
 
-    Ok(None)
-}
-
-/// Collect all annotations from a node's modifiers.
-fn collect_annotations<'a>(node: &Node<'a>, source: &[u8]) -> Vec<AnnotationInfo> {
-    let mut annotations = Vec::new();
-
-    // Check modifiers node which contains annotations
-    for i in 0..node.named_child_count() {
-        let child = node.named_child(i).unwrap();
-        if child.kind() == "modifiers" {
-            for j in 0..child.named_child_count() {
-                let modifier = child.named_child(j).unwrap();
-                if (modifier.kind() == "marker_annotation" || modifier.kind() == "annotation")
-                    && let Some(ann) = parse_annotation(&modifier, source)
-                {
-                    annotations.push(ann);
-                }
-            }
-        }
-    }
-
-    annotations
-}
-
-#[derive(Debug)]
-struct AnnotationInfo {
-    name: String,
-    arguments: BTreeMap<String, String>,
-    value: Option<String>,
-}
-
-fn parse_annotation(node: &Node, source: &[u8]) -> Option<AnnotationInfo> {
-    let mut name = String::new();
-    let mut arguments = BTreeMap::new();
-    let mut value = None;
-
-    for i in 0..node.named_child_count() {
-        let child = node.named_child(i).unwrap();
-        match child.kind() {
-            "identifier" | "scoped_identifier" => {
-                name = node_text(&child, source);
-            }
-            "annotation_argument_list" => {
-                for j in 0..child.named_child_count() {
-                    let arg = child.named_child(j).unwrap();
-                    match arg.kind() {
-                        "element_value_pair" => {
-                            let key = arg
-                                .child_by_field_name("key")
-                                .map(|k| node_text(&k, source))
-                                .unwrap_or_default();
-                            let val = arg
-                                .child_by_field_name("value")
-                                .map(|v| node_text(&v, source))
-                                .unwrap_or_default();
-                            arguments.insert(key, clean_string_literal(&val));
-                        }
-                        _ => {
-                            value = Some(clean_string_literal(&node_text(&arg, source)));
-                        }
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-
-    if name.is_empty() {
-        return None;
-    }
-
-    Some(AnnotationInfo {
-        name,
-        arguments,
-        value,
-    })
+    None
 }
 
 fn extract_request_mapping_path(annotations: &[AnnotationInfo]) -> String {
@@ -169,7 +83,6 @@ fn extract_endpoint_from_method(
     annotations: &[AnnotationInfo],
     base_path: &str,
 ) -> Option<Endpoint> {
-    // Determine HTTP method and path from annotations
     let (http_method, method_path) = extract_http_method_and_path(annotations)?;
 
     let full_path = if base_path.is_empty() {
@@ -178,21 +91,15 @@ fn extract_endpoint_from_method(
         format!("{}{}", base_path.trim_end_matches('/'), method_path)
     };
 
-    // Extract method parameters for input
     let input = extract_method_input(method_node, source);
-
-    // Extract validation annotations from parameters
     let validation = extract_validation_rules(method_node, source);
 
-    // Extract return type info
     let return_type = method_node
         .child_by_field_name("type")
         .map(|t| node_text(&t, source));
 
-    // Extract security annotations
     let security = extract_security_config(annotations);
 
-    // Build basic behavior based on return type
     let behaviors = vec![Behavior {
         name: "success".to_string(),
         condition: None,
@@ -392,43 +299,6 @@ fn extract_security_config(annotations: &[AnnotationInfo]) -> Option<SecurityCon
     })
 }
 
-fn get_class_name(node: &Node, source: &[u8]) -> String {
-    node.child_by_field_name("name")
-        .map(|n| node_text(&n, source))
-        .unwrap_or_else(|| "Unknown".to_string())
-}
-
-// --- Utility functions ---
-
-fn node_text(node: &Node, source: &[u8]) -> String {
-    node.utf8_text(source).unwrap_or("").to_string()
-}
-
-fn clean_string_literal(s: &str) -> String {
-    s.trim_matches('"').trim_matches('\'').to_string()
-}
-
-fn clean_generic_type(t: &str) -> String {
-    // ResponseEntity<User> -> User
-    if let Some(start) = t.find('<')
-        && let Some(end) = t.rfind('>')
-    {
-        return t[start + 1..end].to_string();
-    }
-    t.to_string()
-}
-
-fn to_kebab_case(s: &str) -> String {
-    let mut result = String::new();
-    for (i, c) in s.chars().enumerate() {
-        if c.is_uppercase() && i > 0 {
-            result.push('-');
-        }
-        result.push(c.to_ascii_lowercase());
-    }
-    result
-}
-
 fn default_success_status(method: &HttpMethod) -> u16 {
     match method {
         HttpMethod::Post => 201,
@@ -440,6 +310,11 @@ fn default_success_status(method: &HttpMethod) -> u16 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::context::ParsedFile;
+
+    fn parse_file(source: &str, path: &str) -> ParsedFile {
+        ParsedFile::parse(source.to_string(), path.to_string()).unwrap()
+    }
 
     #[test]
     fn test_simple_rest_controller() {
@@ -472,9 +347,8 @@ public class UserController {
 }
 "#;
 
-        let capability = extract_capability(source, "src/UserController.java")
-            .unwrap()
-            .unwrap();
+        let file = parse_file(source, "src/UserController.java");
+        let capability = extract(&file).unwrap();
 
         assert_eq!(capability.name, "user");
         assert_eq!(capability.endpoints.len(), 4);

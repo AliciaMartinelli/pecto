@@ -1,6 +1,8 @@
+pub mod context;
+pub mod extractors;
 pub mod parser;
-pub mod spring;
 
+use context::{AnalysisContext, ParsedFile};
 use pecto_core::model::ProjectSpec;
 use std::path::Path;
 
@@ -11,18 +13,17 @@ pub fn analyze_project(path: &Path) -> Result<ProjectSpec, JavaAnalysisError> {
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_else(|| "unknown".to_string());
 
-    let mut spec = ProjectSpec::new(project_name);
-    let mut files_analyzed = 0usize;
-
+    // Collect and parse all Java source files
     let java_files: Vec<walkdir::DirEntry> = walkdir::WalkDir::new(path)
         .into_iter()
-        .filter_map(|e: Result<walkdir::DirEntry, walkdir::Error>| e.ok())
-        .filter(|e: &walkdir::DirEntry| {
+        .filter_map(|e| e.ok())
+        .filter(|e| {
             e.path().extension().is_some_and(|ext| ext == "java")
                 && !e.path().to_string_lossy().contains("/test/")
         })
         .collect();
 
+    let mut parsed_files = Vec::new();
     for entry in &java_files {
         let source = std::fs::read_to_string(entry.path()).map_err(|e| {
             JavaAnalysisError::IoError(entry.path().to_string_lossy().to_string(), e)
@@ -35,16 +36,32 @@ pub fn analyze_project(path: &Path) -> Result<ProjectSpec, JavaAnalysisError> {
             .to_string_lossy()
             .to_string();
 
-        if let Some(capability) = spring::extract_capability(&source, &relative_path)?
+        let parsed = ParsedFile::parse(source, relative_path)?;
+        parsed_files.push(parsed);
+    }
+
+    let files_analyzed = parsed_files.len();
+    let ctx = AnalysisContext::new(parsed_files);
+
+    // Run all extractors
+    let mut spec = ProjectSpec::new(project_name);
+    spec.files_analyzed = files_analyzed;
+
+    for file in &ctx.files {
+        // Controller extraction
+        if let Some(capability) = extractors::controller::extract(file)
             && !capability.is_empty()
         {
             spec.capabilities.push(capability);
         }
 
-        files_analyzed += 1;
+        // Future extractors will be added here:
+        // - extractors::entity::extract(file)
+        // - extractors::repository::extract(file)
+        // - extractors::service::extract(file)
+        // - extractors::scheduled::extract(file)
     }
 
-    spec.files_analyzed = files_analyzed;
     Ok(spec)
 }
 
