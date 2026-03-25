@@ -21,42 +21,76 @@ const STATUS_MAPPINGS: &[(&str, u16, &str)] = &[
     ("ACCEPTED", 202, "accepted"),
 ];
 
-/// Extract a Capability from a parsed file if it contains a Spring controller.
+/// Extract a Capability from a parsed file if it contains a Spring controller or JAX-RS resource.
 pub fn extract(file: &ParsedFile, ctx: &AnalysisContext) -> Option<Capability> {
     let root = file.tree.root_node();
     let source_bytes = file.source.as_bytes();
 
     for i in 0..root.named_child_count() {
         let node = root.named_child(i).unwrap();
-        if node.kind() == "class_declaration" {
-            let annotations = collect_annotations(&node, source_bytes);
-
-            let is_controller = annotations
-                .iter()
-                .any(|a| a.name == "RestController" || a.name == "Controller");
-
-            if is_controller {
-                let class_name = get_class_name(&node, source_bytes);
-                let base_path = extract_request_mapping_path(&annotations);
-                let capability_name = to_kebab_case(&class_name.replace("Controller", ""));
-
-                let mut capability = Capability::new(capability_name, file.path.clone());
-                let class_cors = extract_cors(&annotations);
-                let class_rate_limit = extract_rate_limit(&annotations);
-
-                extract_endpoints_from_class(
-                    &node,
-                    source_bytes,
-                    &base_path,
-                    &mut capability,
-                    ctx,
-                    class_cors.as_deref(),
-                    class_rate_limit.as_deref(),
-                );
-
-                return Some(capability);
-            }
+        // Support both class_declaration and interface_declaration (JAX-RS uses interfaces)
+        if node.kind() != "class_declaration" && node.kind() != "interface_declaration" {
+            continue;
         }
+
+        let annotations = collect_annotations(&node, source_bytes);
+
+        // Spring: @RestController or @Controller
+        let is_spring_controller = annotations
+            .iter()
+            .any(|a| a.name == "RestController" || a.name == "Controller");
+
+        // JAX-RS: @Path on class/interface
+        let is_jaxrs_resource = annotations.iter().any(|a| a.name == "Path");
+
+        if !is_spring_controller && !is_jaxrs_resource {
+            continue;
+        }
+
+        let class_name = get_class_name(&node, source_bytes);
+
+        let (base_path, capability_name) = if is_jaxrs_resource {
+            let path = extract_jaxrs_path(&annotations);
+            let name = to_kebab_case(&class_name.replace("Resource", "").replace("Controller", ""));
+            (path, name)
+        } else {
+            let path = extract_request_mapping_path(&annotations);
+            let name = to_kebab_case(&class_name.replace("Controller", ""));
+            (path, name)
+        };
+
+        let mut capability = Capability::new(capability_name, file.path.clone());
+        let class_cors = extract_cors(&annotations);
+        let class_rate_limit = extract_rate_limit(&annotations);
+
+        // Extract security from JAX-RS annotations
+        let class_security = if is_jaxrs_resource {
+            extract_jaxrs_security(&annotations)
+        } else {
+            None
+        };
+
+        if is_jaxrs_resource {
+            extract_jaxrs_endpoints_from_class(
+                &node,
+                source_bytes,
+                &base_path,
+                &mut capability,
+                class_security.as_ref(),
+            );
+        } else {
+            extract_endpoints_from_class(
+                &node,
+                source_bytes,
+                &base_path,
+                &mut capability,
+                ctx,
+                class_cors.as_deref(),
+                class_rate_limit.as_deref(),
+            );
+        }
+
+        return Some(capability);
     }
 
     None
@@ -810,6 +844,229 @@ fn extract_exception_handler_behaviors(class_body: &Node, source: &[u8]) -> Vec<
     behaviors
 }
 
+// ==================== JAX-RS Support ====================
+
+/// Extract path from JAX-RS @Path annotation.
+fn extract_jaxrs_path(annotations: &[AnnotationInfo]) -> String {
+    for ann in annotations {
+        if ann.name == "Path"
+            && let Some(val) = &ann.value
+        {
+            return val.clone();
+        }
+    }
+    String::new()
+}
+
+/// Extract security from JAX-RS annotations (@RolesAllowed, @PermitAll, @DenyAll).
+fn extract_jaxrs_security(annotations: &[AnnotationInfo]) -> Option<SecurityConfig> {
+    let mut roles = Vec::new();
+    let mut auth = None;
+
+    for ann in annotations {
+        match ann.name.as_str() {
+            "RolesAllowed" => {
+                if let Some(val) = &ann.value {
+                    roles.push(val.clone());
+                }
+                auth = Some("required".to_string());
+            }
+            "DenyAll" => {
+                auth = Some("denied".to_string());
+            }
+            "PermitAll" => {
+                // Explicitly public — no auth needed
+                return None;
+            }
+            _ => {}
+        }
+    }
+
+    if auth.is_none() && roles.is_empty() {
+        return None;
+    }
+
+    Some(SecurityConfig {
+        authentication: auth,
+        roles,
+        rate_limit: None,
+        cors: None,
+    })
+}
+
+/// Extract endpoints from a JAX-RS resource class/interface.
+fn extract_jaxrs_endpoints_from_class(
+    class_node: &Node,
+    source: &[u8],
+    base_path: &str,
+    capability: &mut Capability,
+    class_security: Option<&SecurityConfig>,
+) {
+    let body = match class_node.child_by_field_name("body") {
+        Some(b) => b,
+        None => return,
+    };
+
+    for i in 0..body.named_child_count() {
+        let member = body.named_child(i).unwrap();
+        if member.kind() != "method_declaration" {
+            continue;
+        }
+
+        let annotations = collect_annotations(&member, source);
+
+        if let Some(endpoint) =
+            extract_jaxrs_endpoint(&member, source, &annotations, base_path, class_security)
+        {
+            capability.endpoints.push(endpoint);
+        }
+    }
+}
+
+fn extract_jaxrs_endpoint(
+    method_node: &Node,
+    source: &[u8],
+    annotations: &[AnnotationInfo],
+    base_path: &str,
+    class_security: Option<&SecurityConfig>,
+) -> Option<Endpoint> {
+    // Determine HTTP method from @GET, @POST, @PUT, @DELETE, @PATCH
+    let http_method = extract_jaxrs_http_method(annotations)?;
+
+    // Combine base path + method path
+    let method_path = extract_jaxrs_path(annotations);
+    let full_path = if base_path.is_empty() {
+        method_path
+    } else if method_path.is_empty() {
+        base_path.to_string()
+    } else {
+        format!(
+            "{}/{}",
+            base_path.trim_end_matches('/'),
+            method_path.trim_start_matches('/')
+        )
+    };
+
+    // Extract parameters
+    let input = extract_jaxrs_input(method_node, source);
+
+    // Return type
+    let return_type = method_node
+        .child_by_field_name("type")
+        .map(|t| node_text(&t, source));
+
+    // @PermitAll explicitly means no auth — don't fall back to class-level
+    let has_permit_all = annotations.iter().any(|a| a.name == "PermitAll");
+    let security = if has_permit_all {
+        None
+    } else {
+        extract_jaxrs_security(annotations).or_else(|| class_security.cloned())
+    };
+
+    let behaviors = vec![Behavior {
+        name: "success".to_string(),
+        condition: None,
+        returns: ResponseSpec {
+            status: default_success_status(&http_method),
+            body: return_type
+                .filter(|t| t != "void" && t != "Response")
+                .map(|t| TypeRef {
+                    name: clean_generic_type(&t),
+                    fields: BTreeMap::new(),
+                }),
+        },
+        side_effects: Vec::new(),
+    }];
+
+    Some(Endpoint {
+        method: http_method,
+        path: full_path,
+        input,
+        validation: Vec::new(),
+        behaviors,
+        security,
+    })
+}
+
+fn extract_jaxrs_http_method(annotations: &[AnnotationInfo]) -> Option<HttpMethod> {
+    for ann in annotations {
+        match ann.name.as_str() {
+            "GET" => return Some(HttpMethod::Get),
+            "POST" => return Some(HttpMethod::Post),
+            "PUT" => return Some(HttpMethod::Put),
+            "DELETE" => return Some(HttpMethod::Delete),
+            "PATCH" => return Some(HttpMethod::Patch),
+            _ => {}
+        }
+    }
+    None
+}
+
+fn extract_jaxrs_input(method_node: &Node, source: &[u8]) -> Option<EndpointInput> {
+    let params_node = method_node.child_by_field_name("parameters")?;
+    let mut body = None;
+    let mut path_params = Vec::new();
+    let mut query_params = Vec::new();
+
+    for i in 0..params_node.named_child_count() {
+        let param = params_node.named_child(i).unwrap();
+        if param.kind() != "formal_parameter" {
+            continue;
+        }
+
+        let annotations = collect_annotations(&param, source);
+        let param_type = param
+            .child_by_field_name("type")
+            .map(|t| node_text(&t, source))
+            .unwrap_or_default();
+        let param_name = param
+            .child_by_field_name("name")
+            .map(|n| node_text(&n, source))
+            .unwrap_or_default();
+
+        let mut matched = false;
+        for ann in &annotations {
+            match ann.name.as_str() {
+                "PathParam" => {
+                    path_params.push(Param {
+                        name: ann.value.clone().unwrap_or_else(|| param_name.clone()),
+                        param_type: param_type.clone(),
+                        required: true,
+                    });
+                    matched = true;
+                }
+                "QueryParam" => {
+                    query_params.push(Param {
+                        name: ann.value.clone().unwrap_or_else(|| param_name.clone()),
+                        param_type: param_type.clone(),
+                        required: false,
+                    });
+                    matched = true;
+                }
+                _ => {}
+            }
+        }
+
+        // Parameter without JAX-RS annotation = request body (for POST/PUT)
+        if !matched && annotations.is_empty() {
+            body = Some(TypeRef {
+                name: clean_generic_type(&param_type),
+                fields: BTreeMap::new(),
+            });
+        }
+    }
+
+    if body.is_none() && path_params.is_empty() && query_params.is_empty() {
+        return None;
+    }
+
+    Some(EndpointInput {
+        body,
+        path_params,
+        query_params,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1175,5 +1432,126 @@ public class PublicController {
         let sec = post_endpoint.security.as_ref().unwrap();
         assert!(sec.cors.as_ref().unwrap().contains("https://example.com"));
         assert!(sec.rate_limit.as_ref().unwrap().contains("submitLimit"));
+    }
+
+    // ==================== JAX-RS Tests ====================
+
+    #[test]
+    fn test_jaxrs_resource_interface() {
+        let source = r#"
+import javax.ws.rs.*;
+import javax.ws.rs.core.MediaType;
+
+@Path("account")
+public interface AccountResource {
+
+    @GET
+    @Path("/getAll")
+    @Produces(MediaType.APPLICATION_JSON)
+    List<AccountBTO> getAll();
+
+    @GET
+    @Path("/getByUsername/{username}")
+    @Produces(MediaType.APPLICATION_JSON)
+    AccountBTO getByUsername(@PathParam("username") String username);
+
+    @POST
+    @Path("/create")
+    @Consumes(MediaType.APPLICATION_JSON)
+    void create(AccountBTO account);
+
+    @DELETE
+    @Path("/delete/{id}")
+    void delete(@PathParam("id") Long id);
+}
+"#;
+
+        let file = parse_file(source, "src/AccountResource.java");
+        let capability = extract(&file, &empty_ctx()).unwrap();
+
+        assert_eq!(capability.name, "account");
+        assert_eq!(capability.endpoints.len(), 4);
+
+        // GET account/getAll
+        let get_all = &capability.endpoints[0];
+        assert!(matches!(get_all.method, HttpMethod::Get));
+        assert_eq!(get_all.path, "account/getAll");
+
+        // GET account/getByUsername/{username}
+        let get_by = &capability.endpoints[1];
+        assert!(matches!(get_by.method, HttpMethod::Get));
+        assert_eq!(get_by.input.as_ref().unwrap().path_params.len(), 1);
+        assert_eq!(
+            get_by.input.as_ref().unwrap().path_params[0].name,
+            "username"
+        );
+
+        // POST account/create — body param
+        let create = &capability.endpoints[2];
+        assert!(matches!(create.method, HttpMethod::Post));
+        assert!(create.input.as_ref().unwrap().body.is_some());
+
+        // DELETE
+        let delete = &capability.endpoints[3];
+        assert!(matches!(delete.method, HttpMethod::Delete));
+    }
+
+    #[test]
+    fn test_jaxrs_security() {
+        let source = r#"
+import javax.ws.rs.*;
+import javax.annotation.security.*;
+
+@Path("admin")
+@RolesAllowed("ADMIN")
+public interface AdminResource {
+
+    @GET
+    @Path("/secrets")
+    String getSecrets();
+
+    @GET
+    @Path("/public")
+    @PermitAll
+    String getPublic();
+}
+"#;
+
+        let file = parse_file(source, "src/AdminResource.java");
+        let capability = extract(&file, &empty_ctx()).unwrap();
+
+        // getSecrets: inherits class-level @RolesAllowed
+        let secrets = &capability.endpoints[0];
+        let sec = secrets.security.as_ref().unwrap();
+        assert_eq!(sec.authentication.as_deref(), Some("required"));
+        assert!(sec.roles.iter().any(|r| r.contains("ADMIN")));
+
+        // getPublic: @PermitAll overrides
+        let public_ep = &capability.endpoints[1];
+        assert!(public_ep.security.is_none());
+    }
+
+    #[test]
+    fn test_jaxrs_query_params() {
+        let source = r#"
+@Path("search")
+public interface SearchResource {
+
+    @GET
+    @Path("/results")
+    List<Result> search(@QueryParam("q") String query, @QueryParam("page") int page);
+}
+"#;
+
+        let file = parse_file(source, "src/SearchResource.java");
+        let capability = extract(&file, &empty_ctx()).unwrap();
+
+        let endpoint = &capability.endpoints[0];
+        assert_eq!(endpoint.input.as_ref().unwrap().query_params.len(), 2);
+        assert_eq!(endpoint.input.as_ref().unwrap().query_params[0].name, "q");
+        assert_eq!(
+            endpoint.input.as_ref().unwrap().query_params[1].name,
+            "page"
+        );
     }
 }

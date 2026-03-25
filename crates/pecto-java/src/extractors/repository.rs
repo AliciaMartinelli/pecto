@@ -12,46 +12,178 @@ const CRUD_OPS: &[(&str, &str)] = &[
     ("existsById", "Check if entity exists by ID"),
 ];
 
-/// Extract a Capability from a parsed file if it contains a Spring Data repository.
+/// Extract a Capability from a parsed file if it contains a Spring Data repository
+/// or a Jakarta EE repository class (with EntityManager or extending a base repository).
 pub fn extract(file: &ParsedFile) -> Option<Capability> {
     let root = file.tree.root_node();
     let source = file.source.as_bytes();
 
+    // Check for Spring Data interface repositories
     for i in 0..root.named_child_count() {
         let node = root.named_child(i).unwrap();
-        if node.kind() != "interface_declaration" {
-            continue;
+        if node.kind() == "interface_declaration"
+            && let Some(result) = extract_spring_data_repository(&node, source, file)
+        {
+            return Some(result);
         }
+    }
 
-        // Check if it extends a known repository interface
-        let (entity_type, _id_type) = match extract_repository_generics(&node, source) {
-            Some(types) => types,
-            None => continue,
-        };
+    // Check for Jakarta EE class-based repositories (EntityManager or extends base repository)
+    for i in 0..root.named_child_count() {
+        let node = root.named_child(i).unwrap();
+        if node.kind() == "class_declaration"
+            && let Some(result) = extract_jpa_repository(&node, source, file)
+        {
+            return Some(result);
+        }
+    }
 
-        let interface_name = get_class_name(&node, source);
-        let capability_name = format!("{}-repository", to_kebab_case(&entity_type));
-        let mut capability = Capability::new(capability_name, file.path.clone());
+    None
+}
 
-        // Add standard CRUD operations
-        for &(name, _description) in CRUD_OPS {
+fn extract_spring_data_repository(
+    node: &tree_sitter::Node,
+    source: &[u8],
+    file: &ParsedFile,
+) -> Option<Capability> {
+    // Check if it extends a known repository interface
+    let (entity_type, _id_type) = extract_repository_generics(node, source)?;
+
+    let interface_name = get_class_name(node, source);
+    let capability_name = format!("{}-repository", to_kebab_case(&entity_type));
+    let mut capability = Capability::new(capability_name, file.path.clone());
+
+    // Add standard CRUD operations
+    for &(name, _description) in CRUD_OPS {
+        capability.operations.push(Operation {
+            name: name.to_string(),
+            source_method: format!("{}#{}", interface_name, name),
+            input: None,
+            behaviors: vec![],
+            transaction: None,
+        });
+    }
+
+    // Extract custom query methods
+    if let Some(body) = node.child_by_field_name("body") {
+        extract_custom_methods(&body, source, &interface_name, &mut capability);
+    }
+
+    Some(capability)
+}
+
+/// Extract a Jakarta EE repository from a class that uses EntityManager or extends a base repository.
+fn extract_jpa_repository(
+    node: &tree_sitter::Node,
+    source: &[u8],
+    file: &ParsedFile,
+) -> Option<Capability> {
+    let class_name = get_class_name(node, source);
+
+    // Check if it has @PersistenceContext or extends a *Repository base class
+    let has_persistence_context = has_annotation_on_field(node, source, "PersistenceContext");
+    let extends_repo = extends_repository_base(node, source);
+    let name_is_repo = class_name.ends_with("Repository");
+
+    if !has_persistence_context && !extends_repo && !name_is_repo {
+        return None;
+    }
+
+    // Try to infer entity type from generic parameter or class name
+    let entity_type = extract_generic_superclass(node, source)
+        .unwrap_or_else(|| class_name.replace("Repository", ""));
+    let capability_name = format!("{}-repository", to_kebab_case(&entity_type));
+    let mut capability = Capability::new(capability_name, file.path.clone());
+
+    // Extract methods as operations
+    if let Some(body) = node.child_by_field_name("body") {
+        for i in 0..body.named_child_count() {
+            let member = body.named_child(i).unwrap();
+            if member.kind() != "method_declaration" {
+                continue;
+            }
+
+            // Skip private/protected methods and constructors
+            let method_name = member
+                .child_by_field_name("name")
+                .map(|n| node_text(&n, source))
+                .unwrap_or_default();
+
+            if method_name.is_empty()
+                || method_name == class_name
+                || method_name == "getEntityManager"
+            {
+                continue;
+            }
+
             capability.operations.push(Operation {
-                name: name.to_string(),
-                source_method: format!("{}#{}", interface_name, name),
+                name: method_name.clone(),
+                source_method: format!("{}#{}", class_name, method_name),
                 input: None,
                 behaviors: vec![],
                 transaction: None,
             });
         }
-
-        // Extract custom query methods
-        if let Some(body) = node.child_by_field_name("body") {
-            extract_custom_methods(&body, source, &interface_name, &mut capability);
-        }
-
-        return Some(capability);
     }
 
+    if capability.operations.is_empty() {
+        // At minimum add standard ops
+        for &(name, _) in CRUD_OPS {
+            capability.operations.push(Operation {
+                name: name.to_string(),
+                source_method: format!("{}#{}", class_name, name),
+                input: None,
+                behaviors: vec![],
+                transaction: None,
+            });
+        }
+    }
+
+    Some(capability)
+}
+
+fn has_annotation_on_field(node: &tree_sitter::Node, source: &[u8], annotation: &str) -> bool {
+    let Some(body) = node.child_by_field_name("body") else {
+        return false;
+    };
+    for i in 0..body.named_child_count() {
+        let member = body.named_child(i).unwrap();
+        if member.kind() == "field_declaration" {
+            let annotations = collect_annotations(&member, source);
+            if annotations.iter().any(|a| a.name == annotation) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn extends_repository_base(node: &tree_sitter::Node, source: &[u8]) -> bool {
+    for i in 0..node.named_child_count() {
+        let child = node.named_child(i).unwrap();
+        if child.kind() == "superclass" {
+            let text = node_text(&child, source);
+            if text.contains("Repository") {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn extract_generic_superclass(node: &tree_sitter::Node, source: &[u8]) -> Option<String> {
+    for i in 0..node.named_child_count() {
+        let child = node.named_child(i).unwrap();
+        if child.kind() == "superclass" {
+            let text = node_text(&child, source);
+            // "extends AbstractEntityRepository<AscoVersionEntity>"
+            if let Some(start) = text.find('<')
+                && let Some(end) = text.rfind('>')
+            {
+                return Some(text[start + 1..end].trim().to_string());
+            }
+        }
+    }
     None
 }
 

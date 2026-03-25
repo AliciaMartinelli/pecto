@@ -15,9 +15,20 @@ pub fn extract(file: &ParsedFile) -> Option<Capability> {
         }
 
         let annotations = collect_annotations(&node, source);
-        let is_service = annotations
-            .iter()
-            .any(|a| a.name == "Service" || a.name == "Component");
+        // Spring: @Service, @Component
+        // Jakarta EE: @Stateless, @Stateful, @RequestScoped, @ApplicationScoped, @Named
+        let is_service = annotations.iter().any(|a| {
+            matches!(
+                a.name.as_str(),
+                "Service"
+                    | "Component"
+                    | "Stateless"
+                    | "Stateful"
+                    | "RequestScoped"
+                    | "ApplicationScoped"
+                    | "Named"
+            )
+        });
 
         if !is_service {
             continue;
@@ -116,30 +127,46 @@ fn extract_service_methods(
     }
 }
 
-/// Extract @Transactional annotation details.
+/// Extract @Transactional or @TransactionAttribute annotation details.
 fn extract_transactional(annotations: &[AnnotationInfo]) -> Option<String> {
-    let ann = annotations.iter().find(|a| a.name == "Transactional")?;
+    // Spring: @Transactional
+    if let Some(ann) = annotations.iter().find(|a| a.name == "Transactional") {
+        let read_only = ann
+            .arguments
+            .get("readOnly")
+            .map(|v| v == "true")
+            .unwrap_or(false);
+        let propagation = ann.arguments.get("propagation").cloned();
 
-    let read_only = ann
-        .arguments
-        .get("readOnly")
-        .map(|v| v == "true")
-        .unwrap_or(false);
-
-    let propagation = ann.arguments.get("propagation").cloned();
-
-    if read_only {
-        Some("read-only".to_string())
-    } else if let Some(prop) = propagation {
-        // e.g., Propagation.REQUIRES_NEW -> requires-new
-        let clean = prop
-            .replace("Propagation.", "")
-            .to_lowercase()
-            .replace('_', "-");
-        Some(clean)
-    } else {
-        Some("required".to_string())
+        return if read_only {
+            Some("read-only".to_string())
+        } else if let Some(prop) = propagation {
+            let clean = prop
+                .replace("Propagation.", "")
+                .to_lowercase()
+                .replace('_', "-");
+            Some(clean)
+        } else {
+            Some("required".to_string())
+        };
     }
+
+    // Jakarta EE: @TransactionAttribute
+    if let Some(ann) = annotations
+        .iter()
+        .find(|a| a.name == "TransactionAttribute")
+    {
+        if let Some(val) = &ann.value {
+            let clean = val
+                .replace("TransactionAttributeType.", "")
+                .to_lowercase()
+                .replace('_', "-");
+            return Some(clean);
+        }
+        return Some("required".to_string());
+    }
+
+    None
 }
 
 /// Check if a method has public access.
@@ -169,8 +196,14 @@ fn collect_side_effects(node: &Node, source: &[u8], effects: &mut Vec<SideEffect
     if node.kind() == "method_invocation" {
         let text = node_text(node, source);
 
-        // Repository calls: xxx.save(...), xxx.delete(...), xxx.saveAll(...)
-        if text.contains(".save(") || text.contains(".saveAll(") {
+        // Repository/EntityManager calls
+        // Spring: .save(), .saveAll()
+        // JPA EntityManager: .persist(), .merge()
+        if text.contains(".save(")
+            || text.contains(".saveAll(")
+            || text.contains(".persist(")
+            || text.contains(".merge(")
+        {
             let target = extract_call_target(&text);
             if !effects
                 .iter()
@@ -181,6 +214,7 @@ fn collect_side_effects(node: &Node, source: &[u8], effects: &mut Vec<SideEffect
         } else if text.contains(".delete(")
             || text.contains(".deleteById(")
             || text.contains(".deleteAll(")
+            || text.contains(".remove(")
         {
             let target = extract_call_target(&text);
             if !effects.iter().any(|e| matches!(e, SideEffect::DbUpdate { description } if description.contains(&target))) {
