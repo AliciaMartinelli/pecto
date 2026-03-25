@@ -1,5 +1,5 @@
-use crate::parser::parse_java;
 use crate::JavaAnalysisError;
+use crate::parser::parse_java;
 use pecto_core::model::*;
 use std::collections::BTreeMap;
 use tree_sitter::Node;
@@ -35,12 +35,7 @@ pub fn extract_capability(
                 let mut capability = Capability::new(capability_name, file_path.to_string());
 
                 // Extract endpoints from methods
-                extract_endpoints_from_class(
-                    &node,
-                    source_bytes,
-                    &base_path,
-                    &mut capability,
-                );
+                extract_endpoints_from_class(&node, source_bytes, &base_path, &mut capability);
 
                 return Ok(Some(capability));
             }
@@ -61,9 +56,10 @@ fn collect_annotations<'a>(node: &Node<'a>, source: &[u8]) -> Vec<AnnotationInfo
             for j in 0..child.named_child_count() {
                 let modifier = child.named_child(j).unwrap();
                 if (modifier.kind() == "marker_annotation" || modifier.kind() == "annotation")
-                    && let Some(ann) = parse_annotation(&modifier, source) {
-                        annotations.push(ann);
-                    }
+                    && let Some(ann) = parse_annotation(&modifier, source)
+                {
+                    annotations.push(ann);
+                }
             }
         }
     }
@@ -158,7 +154,9 @@ fn extract_endpoints_from_class(
         if member.kind() == "method_declaration" {
             let annotations = collect_annotations(&member, source);
 
-            if let Some(endpoint) = extract_endpoint_from_method(&member, source, &annotations, base_path) {
+            if let Some(endpoint) =
+                extract_endpoint_from_method(&member, source, &annotations, base_path)
+            {
                 capability.endpoints.push(endpoint);
             }
         }
@@ -293,10 +291,7 @@ fn extract_method_input(method_node: &Node, source: &[u8]) -> Option<EndpointInp
                 }
                 "PathVariable" => {
                     path_params.push(Param {
-                        name: ann
-                            .value
-                            .clone()
-                            .unwrap_or_else(|| param_name.clone()),
+                        name: ann.value.clone().unwrap_or_else(|| param_name.clone()),
                         param_type: param_type.clone(),
                         required: true,
                     });
@@ -308,10 +303,7 @@ fn extract_method_input(method_node: &Node, source: &[u8]) -> Option<EndpointInp
                         .map(|r| r != "false")
                         .unwrap_or(true);
                     query_params.push(Param {
-                        name: ann
-                            .value
-                            .clone()
-                            .unwrap_or_else(|| param_name.clone()),
+                        name: ann.value.clone().unwrap_or_else(|| param_name.clone()),
                         param_type: param_type.clone(),
                         required,
                     });
@@ -346,7 +338,9 @@ fn extract_validation_rules(method_node: &Node, source: &[u8]) -> Vec<Validation
         }
 
         let annotations = collect_annotations(&param, source);
-        let has_valid = annotations.iter().any(|a| a.name == "Valid" || a.name == "Validated");
+        let has_valid = annotations
+            .iter()
+            .any(|a| a.name == "Valid" || a.name == "Validated");
 
         if has_valid {
             let param_name = param
@@ -417,9 +411,10 @@ fn clean_string_literal(s: &str) -> String {
 fn clean_generic_type(t: &str) -> String {
     // ResponseEntity<User> -> User
     if let Some(start) = t.find('<')
-        && let Some(end) = t.rfind('>') {
-            return t[start + 1..end].to_string();
-        }
+        && let Some(end) = t.rfind('>')
+    {
+        return t[start + 1..end].to_string();
+    }
     t.to_string()
 }
 

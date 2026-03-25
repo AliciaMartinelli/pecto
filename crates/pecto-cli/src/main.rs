@@ -63,14 +63,9 @@ fn cmd_init(path: &PathBuf, format: &str, output: Option<&std::path::Path>) -> R
         abs_path.display()
     );
 
-    let spec = pecto_java::analyze_project(&abs_path)
-        .with_context(|| "Analysis failed")?;
+    let spec = pecto_java::analyze_project(&abs_path).with_context(|| "Analysis failed")?;
 
-    let total_endpoints: usize = spec
-        .capabilities
-        .iter()
-        .map(|c| c.endpoints.len())
-        .sum();
+    let total_endpoints: usize = spec.capabilities.iter().map(|c| c.endpoints.len()).sum();
 
     eprintln!(
         "{} Analyzed {} files → {} capabilities, {} endpoints\n",
@@ -81,10 +76,8 @@ fn cmd_init(path: &PathBuf, format: &str, output: Option<&std::path::Path>) -> R
     );
 
     let output_str = match format {
-        "json" => pecto_core::output::to_json(&spec)
-            .context("Failed to serialize to JSON")?,
-        _ => pecto_core::output::to_yaml(&spec)
-            .context("Failed to serialize to YAML")?,
+        "json" => pecto_core::output::to_json(&spec).context("Failed to serialize to JSON")?,
+        _ => pecto_core::output::to_yaml(&spec).context("Failed to serialize to YAML")?,
     };
 
     match output {
@@ -109,8 +102,7 @@ fn cmd_show(name: &str, path: &PathBuf) -> Result<()> {
     let abs_path = std::fs::canonicalize(path)
         .with_context(|| format!("Cannot find directory: {}", path.display()))?;
 
-    let spec = pecto_java::analyze_project(&abs_path)
-        .with_context(|| "Analysis failed")?;
+    let spec = pecto_java::analyze_project(&abs_path).with_context(|| "Analysis failed")?;
 
     let capability = spec
         .capabilities
@@ -119,8 +111,7 @@ fn cmd_show(name: &str, path: &PathBuf) -> Result<()> {
 
     match capability {
         Some(cap) => {
-            let yaml = serde_yaml::to_string(cap)
-                .context("Failed to serialize")?;
+            let yaml = serde_yaml::to_string(cap).context("Failed to serialize")?;
             println!("{yaml}");
         }
         None => {

@@ -36,9 +36,10 @@ pub fn analyze_project(path: &Path) -> Result<ProjectSpec, JavaAnalysisError> {
             .to_string();
 
         if let Some(capability) = spring::extract_capability(&source, &relative_path)?
-            && !capability.is_empty() {
-                spec.capabilities.push(capability);
-            }
+            && !capability.is_empty()
+        {
+            spec.capabilities.push(capability);
+        }
 
         files_analyzed += 1;
     }
