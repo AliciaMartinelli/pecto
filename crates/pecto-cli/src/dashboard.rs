@@ -8,11 +8,8 @@ pub fn render_html(spec: &ProjectSpec, is_live: bool) -> String {
     let files = spec.files_analyzed;
     let caps = spec.capabilities.len();
     let deps = spec.dependencies.len();
-    let live_badge = if is_live {
-        r#"<div class="live">&#9679; live</div>"#
-    } else {
-        ""
-    };
+    let _ = is_live; // reserved for future live-reload feature
+    let live_badge = "";
 
     format!(
         r##"<!DOCTYPE html>
