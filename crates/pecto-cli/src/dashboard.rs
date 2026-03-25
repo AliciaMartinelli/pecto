@@ -328,24 +328,21 @@ if (allDeps.length > 0) {{
     }};
   }});
 
-  // Spread domain centers more — use a larger grid
-  const gridW = width * 1.5;
-  const gridH = height * 1.5;
-  const offsetX = (width - gridW) / 2;
-  const offsetY = (height - gridH) / 2;
+  // Keep domain centers within viewport with padding
+  const pad = 80;
   Object.keys(domainCenters).forEach((d, i) => {{
     domainCenters[d] = {{
-      x: offsetX + (i % cols + 0.5) * (gridW / cols),
-      y: offsetY + (Math.floor(i / cols) + 0.5) * (gridH / Math.ceil(domainNames.length / cols))
+      x: pad + (i % cols + 0.5) * ((width - pad*2) / cols),
+      y: pad + (Math.floor(i / cols) + 0.5) * ((height - pad*2) / Math.ceil(domainNames.length / cols))
     }};
   }});
 
   const sim = d3.forceSimulation(nodes)
-    .force('link', d3.forceLink(links).id(d => d.id).distance(50).strength(0.15))
-    .force('charge', d3.forceManyBody().strength(-80))
-    .force('collision', d3.forceCollide().radius(d => d.size + 5))
-    .force('cluster', d3.forceX(d => domainCenters[d.domain]?.x || width/2).strength(0.7))
-    .force('clusterY', d3.forceY(d => domainCenters[d.domain]?.y || height/2).strength(0.7));
+    .force('link', d3.forceLink(links).id(d => d.id).distance(40).strength(0.1))
+    .force('charge', d3.forceManyBody().strength(-60))
+    .force('collision', d3.forceCollide().radius(d => d.size + 4))
+    .force('cluster', d3.forceX(d => domainCenters[d.domain]?.x || width/2).strength(0.6))
+    .force('clusterY', d3.forceY(d => domainCenters[d.domain]?.y || height/2).strength(0.6));
 
   const link = g.append('g').selectAll('line').data(links).join('line')
     .attr('class', d => 'link ' + d.kind);
