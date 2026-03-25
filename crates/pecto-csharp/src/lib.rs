@@ -1,4 +1,5 @@
 pub mod context;
+pub mod dependencies;
 pub mod extractors;
 pub mod parser;
 
@@ -85,6 +86,8 @@ pub fn analyze_project(path: &Path) -> Result<ProjectSpec, CSharpAnalysisError> 
             spec.capabilities.push(capability);
         }
     }
+
+    dependencies::resolve_dependencies(&mut spec, &ctx);
 
     Ok(spec)
 }
