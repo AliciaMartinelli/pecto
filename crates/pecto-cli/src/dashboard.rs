@@ -78,6 +78,9 @@ svg text {{ font-family: 'Inter', -apple-system, sans-serif; pointer-events: non
 .node.dimmed circle {{ opacity: 0.15; }}
 .node.dimmed text {{ opacity: 0.15; }}
 .link.dimmed {{ opacity: 0.08; }}
+.filter-btn {{ padding: 3px 8px; background: #1e293b; border: 1px solid #334155; border-radius: 4px; color: #94a3b8; font-size: 10px; cursor: pointer; }}
+.filter-btn:hover {{ background: #334155; }}
+.filter-btn.active {{ background: #334155; color: #E185C8; border-color: #E185C8; }}
 </style>
 </head>
 <body>
@@ -102,6 +105,7 @@ svg text {{ font-family: 'Inter', -apple-system, sans-serif; pointer-events: non
       <div class="legend-item"><div class="legend-line dashed"></div> Queries</div>
       <div class="legend-item"><div class="legend-line dotted"></div> Listens</div>
     </div>
+    <div id="domain-filter" style="position:absolute;top:8px;left:8px;z-index:10;display:flex;flex-wrap:wrap;gap:4px;align-items:center"></div>
     <div class="tooltip" id="tooltip" style="display:none"></div>
   </div>
   <div class="sidebar">
@@ -266,15 +270,37 @@ svg.attr('viewBox', [0, 0, width, height]);
 
 const tooltip = document.getElementById('tooltip');
 
+// Build domain lookup
+const domainOf = {{}};
+(spec.domains || []).forEach(d => d.capabilities.forEach(c => domainOf[c] = d.name));
+const domainNames = [...new Set(Object.values(domainOf))].sort();
+
+// Domain filter buttons
+const filterEl = document.getElementById('domain-filter');
+if (domainNames.length > 1) {{
+  let fhtml = '<span style="color:#64748b;font-size:10px;margin-right:6px">Filter:</span>';
+  fhtml += `<button class="filter-btn active" onclick="filterDomain(null)">All</button>`;
+  domainNames.forEach(d => {{
+    fhtml += `<button class="filter-btn" onclick="filterDomain('${{d}}')">${{d}}</button>`;
+  }});
+  filterEl.innerHTML = fhtml;
+}}
+
+let activeDomain = null;
+
 if (allDeps.length > 0) {{
-  const nodes = [...new Set(allDeps.flatMap(d => [d.from, d.to]))].map(id => {{
+  // Include ALL capabilities as nodes (not just those with deps)
+  const depNodeIds = new Set(allDeps.flatMap(d => [d.from, d.to]));
+  const allNodeIds = [...new Set([...depNodeIds, ...spec.capabilities.map(c => c.name)])];
+
+  const nodes = allNodeIds.map(id => {{
     const cap = spec.capabilities.find(c => c.name === id);
-    return {{ id, ...getCapType(cap), size: getCapSize(cap) }};
+    return {{ id, ...getCapType(cap), size: getCapSize(cap), domain: domainOf[id] || 'other' }};
   }});
   const links = allDeps.map(d => ({{ source: d.from, target: d.to, kind: d.kind || 'calls' }}));
 
   const g = svg.append('g');
-  svg.call(d3.zoom().scaleExtent([0.2, 6]).on('zoom', (e) => g.attr('transform', e.transform)));
+  svg.call(d3.zoom().scaleExtent([0.1, 8]).on('zoom', (e) => g.attr('transform', e.transform)));
 
   g.append('defs').append('marker')
     .attr('id', 'arrow').attr('viewBox', '0 -5 10 10')
@@ -282,11 +308,23 @@ if (allDeps.length > 0) {{
     .attr('orient', 'auto')
     .append('path').attr('d', 'M0,-5L10,0L0,5').attr('fill', '#475569');
 
+  // Domain cluster centers
+  const domainCenters = {{}};
+  const cols = Math.ceil(Math.sqrt(domainNames.length));
+  domainNames.forEach((d, i) => {{
+    domainCenters[d] = {{
+      x: (i % cols + 0.5) * (width / cols),
+      y: (Math.floor(i / cols) + 0.5) * (height / Math.ceil(domainNames.length / cols))
+    }};
+  }});
+
   const sim = d3.forceSimulation(nodes)
-    .force('link', d3.forceLink(links).id(d => d.id).distance(120))
-    .force('charge', d3.forceManyBody().strength(-300))
-    .force('center', d3.forceCenter(width / 2, height / 2))
-    .force('collision', d3.forceCollide().radius(d => d.size + 15));
+    .force('link', d3.forceLink(links).id(d => d.id).distance(80).strength(0.3))
+    .force('charge', d3.forceManyBody().strength(-150))
+    .force('center', d3.forceCenter(width / 2, height / 2).strength(0.05))
+    .force('collision', d3.forceCollide().radius(d => d.size + 8))
+    .force('cluster', d3.forceX(d => domainCenters[d.domain]?.x || width/2).strength(0.15))
+    .force('clusterY', d3.forceY(d => domainCenters[d.domain]?.y || height/2).strength(0.15));
 
   const link = g.append('g').selectAll('line').data(links).join('line')
     .attr('class', d => 'link ' + d.kind);
@@ -303,8 +341,25 @@ if (allDeps.length > 0) {{
     .attr('stroke', '#1e293b')
     .attr('stroke-width', 2);
 
-  node.append('text').text(d => d.id).attr('x', d => d.size + 5).attr('y', 4)
-    .attr('fill', '#94a3b8').attr('font-size', 11);
+  // Only show labels for larger nodes (to reduce clutter)
+  node.append('text').text(d => d.size >= 10 ? d.id : '').attr('x', d => d.size + 5).attr('y', 4)
+    .attr('fill', '#94a3b8').attr('font-size', 10);
+
+  // Domain filter function
+  window.filterDomain = function(domain) {{
+    activeDomain = domain;
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    event.target.classList.add('active');
+    node.style('display', d => (!domain || d.domain === domain) ? '' : 'none');
+    link.style('display', d => {{
+      if (!domain) return '';
+      const sId = typeof d.source === 'object' ? d.source.id : d.source;
+      const tId = typeof d.target === 'object' ? d.target.id : d.target;
+      const sDomain = domainOf[sId];
+      const tDomain = domainOf[tId];
+      return (sDomain === domain || tDomain === domain) ? '' : 'none';
+    }});
+  }};
 
   // Hover: tooltip + highlight
   node.on('mouseenter', (event, d) => {{
