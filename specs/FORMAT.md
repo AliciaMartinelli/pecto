@@ -1,4 +1,4 @@
-# pecto Spec Format v0.1
+# pecto Spec Format v0.2
 
 The pecto spec format describes the **behavior** of software — what it does, under what conditions, and with what constraints.
 
@@ -12,8 +12,8 @@ The pecto spec format describes the **behavior** of software — what it does, u
 ## Top-Level Structure
 
 ```yaml
-project: my-app
-analyzed: 2026-03-25T10:00:00Z
+name: my-app
+analyzed: '2026-03-25T10:00:00Z'
 files_analyzed: 247
 capabilities:
   - name: user-authentication
@@ -26,54 +26,81 @@ capabilities:
 
 ## Capability
 
-A **capability** groups related behaviors. Typically maps to a controller, service, or module.
+A **capability** groups related behaviors. Typically maps to a controller, service, entity, or module.
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `name` | string | Kebab-case identifier (e.g., `user-authentication`) |
 | `source` | string | Relative path to the primary source file |
 | `endpoints` | list | HTTP endpoints (REST APIs) |
-| `operations` | list | Non-HTTP operations (service methods) |
+| `operations` | list | Non-HTTP operations (service methods, repository queries) |
 | `entities` | list | Database entities |
-| `scheduled_tasks` | list | Cron/scheduled jobs |
+| `scheduled_tasks` | list | Cron/scheduled jobs, event listeners, background tasks |
 
 ## Endpoint
 
 An HTTP endpoint extracted from a controller.
 
+### Java (Spring Boot)
+
 ```yaml
-endpoint:
-  method: POST
-  path: /api/auth/login
+- method: POST
+  path: /api/users
   input:
     body:
-      name: LoginRequest
+      name: CreateUserRequest
       fields:
         email: String
-        password: String
-    path_params: []
-    query_params: []
+        name: String
   validation:
     - field: email
       constraints: ["@NotBlank", "@Email"]
+    - field: name
+      constraints: ["@NotBlank", "@Size(min=2, max=50)"]
+  behaviors:
+    - name: success
+      returns:
+        status: 201
+        body:
+          name: User
+    - name: not-found
+      returns:
+        status: 404
+  security:
+    authentication: required
+    roles: ["hasRole('ADMIN')"]
+    cors: "origins: https://example.com"
+    rate_limit: "rate-limiter: apiLimit"
+```
+
+### C# (ASP.NET Core)
+
+```yaml
+- method: POST
+  path: api/users
+  input:
+    body:
+      name: CreateUserRequest
+      fields:
+        Email: string
+        Name: string
+  validation:
+    - field: Email
+      constraints: ["[Required]", "[EmailAddress]"]
+    - field: Name
+      constraints: ["[Required]", "[StringLength(50)]"]
   behaviors:
     - name: success
       returns:
         status: 200
         body:
-          name: AuthResponse
-          fields: {token: String}
-      side_effects:
-        - kind: db_insert
-          table: audit_log
-    - name: invalid_credentials
-      condition: wrong password
+          name: User
+    - name: not-found
       returns:
-        status: 401
+        status: 404
   security:
-    authentication: JWT Bearer Token
-    roles: ["ROLE_USER"]
-    rate_limit: 20/min per IP
+    authentication: required
+    roles: ["Admin"]
 ```
 
 ## Behavior
@@ -82,8 +109,8 @@ A **behavior** describes what happens under specific conditions.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `name` | string | Descriptive name (e.g., `success`, `not-found`) |
-| `condition` | string? | When this behavior occurs |
+| `name` | string | Descriptive name (e.g., `success`, `not-found`, `conflict`) |
+| `condition` | string? | When this behavior occurs (e.g., `throws NotFoundException`) |
 | `returns` | ResponseSpec | HTTP status + response body |
 | `side_effects` | list | Database writes, events, service calls |
 
@@ -98,23 +125,87 @@ A **behavior** describes what happens under specific conditions.
 
 ## Entity
 
-A database entity extracted from ORM annotations.
+A database entity extracted from ORM annotations/attributes.
+
+### Java (JPA/Hibernate)
 
 ```yaml
-entity:
-  name: User
-  table: users
+- name: Owner
+  table: owners
   fields:
     - name: id
-      type: Long
+      type: Integer
       constraints: ["@Id", "@GeneratedValue"]
-    - name: email
+    - name: firstName
       type: String
-      constraints: ["@Column(unique=true)", "@NotBlank"]
+      constraints: ["@NotBlank"]
+    - name: pets
+      type: List<Pet>
+      constraints: ["@OneToMany"]
+```
+
+### C# (Entity Framework Core)
+
+```yaml
+- name: CatalogItem
+  table: Catalog
+  fields:
+    - name: Id
+      type: int
+      constraints: ["[Key]"]
+    - name: Name
+      type: string
+      constraints: ["[Required]", "[MaxLength(100)]"]
+    - name: Price
+      type: decimal
+      constraints: ["[Required]"]
+```
+
+## Operation
+
+A service method or repository operation.
+
+```yaml
+- name: createOrder
+  source_method: OrderService#createOrder
+  input:
+    name: CreateOrderRequest
+  transaction: required
+  behaviors:
+    - name: success
+      returns:
+        status: 200
+        body:
+          name: Order
+      side_effects:
+        - kind: db_insert
+          table: orderRepository
+        - kind: event
+          name: OrderCreatedEvent
+        - kind: call
+          target: paymentService.charge
+```
+
+## Scheduled Task
+
+```yaml
+- name: hourlyCleanup
+  schedule: "cron: 0 0 * * * *"
+  description: null
+
+- name: handleOrderCreated
+  schedule: "event: OrderCreatedEvent"
+  description: Handles OrderCreatedEvent events
 ```
 
 ## Versioning
 
 The spec format follows semantic versioning. Breaking changes increment the major version.
 
-Current version: **v0.1** (unstable, subject to change)
+Current version: **v0.2** (stabilizing)
+
+### Changes from v0.1
+- Added C# examples
+- Added `cors` field to SecurityConfig
+- Added Operation and ScheduledTask examples
+- Clarified language-agnostic design with side-by-side Java/C# examples
