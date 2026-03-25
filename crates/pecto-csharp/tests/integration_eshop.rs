@@ -37,7 +37,8 @@ fn test_eshop_on_web() {
         &project_dir,
     );
 
-    let spec = pecto_csharp::analyze_project(&project_dir).expect("Analysis should succeed");
+    let mut spec = pecto_csharp::analyze_project(&project_dir).expect("Analysis should succeed");
+    pecto_core::domains::cluster_domains(&mut spec);
 
     assert!(
         spec.files_analyzed > 0,
@@ -64,10 +65,24 @@ fn test_eshop_on_web() {
         .collect();
     assert!(!service_caps.is_empty(), "Should find service classes");
 
+    // Should have domains clustered
+    assert!(!spec.domains.is_empty(), "Should have domain clusters");
+
     // Print summary
     eprintln!("\n=== eShopOnWeb Analysis ===");
     eprintln!("Files analyzed: {}", spec.files_analyzed);
     eprintln!("Capabilities: {}", spec.capabilities.len());
+    eprintln!("Dependencies: {}", spec.dependencies.len());
+    eprintln!("Domains: {}", spec.domains.len());
+
+    for domain in &spec.domains {
+        eprintln!("  Domain '{}': {:?}", domain.name, domain.capabilities);
+    }
+
+    for dep in &spec.dependencies {
+        eprintln!("  {} → {} ({:?})", dep.from, dep.to, dep.kind);
+    }
+
     for cap in &spec.capabilities {
         let detail = if !cap.endpoints.is_empty() {
             format!("{} endpoints", cap.endpoints.len())

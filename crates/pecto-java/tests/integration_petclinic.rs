@@ -38,7 +38,8 @@ fn test_spring_petclinic_rest() {
         &project_dir,
     );
 
-    let spec = pecto_java::analyze_project(&project_dir).expect("Analysis should succeed");
+    let mut spec = pecto_java::analyze_project(&project_dir).expect("Analysis should succeed");
+    pecto_core::domains::cluster_domains(&mut spec);
 
     assert!(
         spec.files_analyzed > 0,
@@ -106,10 +107,30 @@ fn test_spring_petclinic_rest() {
         .collect();
     assert!(!service_caps.is_empty(), "Should find service classes");
 
+    // Should have dependencies resolved
+    eprintln!("\n=== Dependencies ===");
+    for dep in &spec.dependencies {
+        eprintln!("  {} → {} ({:?})", dep.from, dep.to, dep.kind);
+    }
+
+    // Should have domains clustered
+    assert!(!spec.domains.is_empty(), "Should have domain clusters");
+    eprintln!("\n=== Domains ===");
+    for domain in &spec.domains {
+        eprintln!(
+            "  {} ({} caps): {:?}",
+            domain.name,
+            domain.capabilities.len(),
+            domain.capabilities
+        );
+    }
+
     // Print summary for manual inspection
     eprintln!("\n=== Spring PetClinic REST Analysis ===");
     eprintln!("Files analyzed: {}", spec.files_analyzed);
     eprintln!("Capabilities: {}", spec.capabilities.len());
+    eprintln!("Dependencies: {}", spec.dependencies.len());
+    eprintln!("Domains: {}", spec.domains.len());
     for cap in &spec.capabilities {
         let detail = if !cap.endpoints.is_empty() {
             format!("{} endpoints", cap.endpoints.len())
