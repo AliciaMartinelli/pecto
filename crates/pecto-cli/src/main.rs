@@ -1,3 +1,5 @@
+mod report;
+
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 use owo_colors::OwoColorize;
@@ -87,6 +89,24 @@ enum Commands {
         format: String,
     },
 
+    /// Export compact AI/LLM-readable context
+    Context {
+        /// Path to the project directory
+        #[arg(default_value = ".")]
+        path: PathBuf,
+    },
+
+    /// Generate a self-contained HTML report with dependency graph
+    Report {
+        /// Path to the project directory
+        #[arg(default_value = ".")]
+        path: PathBuf,
+
+        /// Output HTML file
+        #[arg(short, long, default_value = "pecto-report.html")]
+        output: PathBuf,
+    },
+
     /// Show impact of changing a capability
     Impact {
         /// Capability name to analyze
@@ -132,7 +152,9 @@ fn main() -> Result<()> {
         ),
         Commands::Show { name, path } => cmd_show(&name, &path, &cli.language),
         Commands::Domains { path } => cmd_domains(&path, &cli.language),
+        Commands::Context { path } => cmd_context(&path, &cli.language),
         Commands::Graph { path, format } => cmd_graph(&path, &format, &cli.language),
+        Commands::Report { path, output } => cmd_report(&path, &output, &cli.language),
         Commands::Impact { name, path } => cmd_impact(&name, &path, &cli.language),
         Commands::Verify { spec, path } => cmd_verify(&spec, &path, &cli.language),
         Commands::Diff { base, head, path } => cmd_diff(&base, &head, &path, &cli.language),
@@ -374,6 +396,24 @@ fn cmd_verify(spec_path: &Path, path: &Path, language: &Language) -> Result<()> 
     }
 
     std::process::exit(1);
+}
+
+fn cmd_report(path: &Path, output: &Path, language: &Language) -> Result<()> {
+    let spec = analyze(path, language)?;
+    report::generate_report(&spec, output)?;
+    eprintln!(
+        "{} Report written to {}",
+        "✓".bold().green(),
+        output.display()
+    );
+    Ok(())
+}
+
+fn cmd_context(path: &Path, language: &Language) -> Result<()> {
+    let spec = analyze(path, language)?;
+    let ctx = pecto_core::context_export::to_context(&spec);
+    println!("{ctx}");
+    Ok(())
 }
 
 fn cmd_domains(path: &Path, language: &Language) -> Result<()> {
