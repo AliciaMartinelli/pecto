@@ -53,7 +53,7 @@ async fn index_handler(State(spec): State<Arc<ProjectSpec>>) -> Html<String> {
 * {{ margin: 0; padding: 0; box-sizing: border-box; }}
 body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f172a; color: #e2e8f0; }}
 .header {{ padding: 16px 24px; border-bottom: 1px solid #1e293b; display: flex; align-items: center; gap: 16px; }}
-.header h1 {{ font-size: 18px; color: #22d3ee; font-family: monospace; }}
+.header h1 {{ font-size: 18px; font-family: monospace; font-weight: bold; background: linear-gradient(90deg, #C9C9EB, #E185C8, #DF0F51, #FFA161); -webkit-background-clip: text; background-clip: text; color: transparent; }}
 .header .stats {{ color: #64748b; font-size: 13px; }}
 .header .live {{ color: #34d399; font-size: 11px; margin-left: auto; }}
 .container {{ display: grid; grid-template-columns: 1fr 340px; height: calc(100vh - 57px); }}

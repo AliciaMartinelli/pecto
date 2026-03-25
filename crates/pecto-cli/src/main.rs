@@ -114,7 +114,7 @@ enum Commands {
         name: String,
 
         /// Path to the project directory
-        #[arg(short, long, default_value = ".")]
+        #[arg(default_value = ".")]
         path: PathBuf,
     },
 

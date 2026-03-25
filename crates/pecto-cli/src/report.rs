@@ -6,6 +6,11 @@ use std::path::Path;
 pub fn generate_report(spec: &ProjectSpec, output: &Path) -> Result<()> {
     let spec_json = serde_json::to_string(spec).context("Failed to serialize spec for report")?;
 
+    let name = &spec.name;
+    let files = spec.files_analyzed;
+    let caps = spec.capabilities.len();
+    let deps = spec.dependencies.len();
+
     let html = format!(
         r##"<!DOCTYPE html>
 <html lang="en">
@@ -17,120 +22,134 @@ pub fn generate_report(spec: &ProjectSpec, output: &Path) -> Result<()> {
 <style>
 * {{ margin: 0; padding: 0; box-sizing: border-box; }}
 body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f172a; color: #e2e8f0; }}
-.header {{ padding: 24px 32px; border-bottom: 1px solid #1e293b; display: flex; align-items: center; gap: 16px; }}
-.header h1 {{ font-size: 20px; color: #22d3ee; font-family: monospace; }}
-.header .stats {{ color: #64748b; font-size: 14px; }}
-.container {{ display: grid; grid-template-columns: 1fr 360px; height: calc(100vh - 73px); }}
-#graph {{ background: #0f172a; }}
+.header {{ padding: 16px 24px; border-bottom: 1px solid #1e293b; display: flex; align-items: center; gap: 16px; }}
+.header h1 {{ font-size: 18px; font-family: monospace; font-weight: bold; background: linear-gradient(90deg, #C9C9EB, #E185C8, #DF0F51, #FFA161); -webkit-background-clip: text; background-clip: text; color: transparent; }}
+.header .stats {{ color: #64748b; font-size: 13px; }}
+.container {{ display: grid; grid-template-columns: 1fr 340px; height: calc(100vh - 57px); }}
+#graph {{ background: #0f172a; cursor: grab; }}
+#graph:active {{ cursor: grabbing; }}
 .sidebar {{ border-left: 1px solid #1e293b; overflow-y: auto; padding: 16px; }}
-.sidebar h2 {{ font-size: 16px; margin-bottom: 12px; color: #94a3b8; }}
-.sidebar h3 {{ font-size: 13px; color: #22d3ee; margin: 12px 0 6px; }}
-.cap-item {{ padding: 6px 8px; margin: 2px 0; border-radius: 4px; font-size: 12px; cursor: pointer; }}
+.sidebar h2 {{ font-size: 14px; margin-bottom: 8px; color: #94a3b8; }}
+.domain {{ margin-bottom: 12px; }}
+.domain-header {{ font-size: 13px; font-weight: 600; padding: 6px 8px; background: #1e293b; border-radius: 4px; margin-bottom: 3px; cursor: pointer; }}
+.domain-header:hover {{ background: #334155; }}
+.cap-item {{ padding: 4px 8px; margin: 1px 0; border-radius: 3px; font-size: 11px; cursor: pointer; display: flex; justify-content: space-between; }}
 .cap-item:hover {{ background: #1e293b; }}
-.cap-item .type {{ color: #64748b; font-size: 11px; }}
-.domain {{ margin-bottom: 16px; }}
-.domain-header {{ font-size: 14px; font-weight: 600; padding: 8px; background: #1e293b; border-radius: 6px; margin-bottom: 4px; }}
-.dep {{ font-size: 11px; color: #64748b; padding: 2px 8px; }}
-svg text {{ font-family: -apple-system, sans-serif; }}
-.node circle {{ stroke: #1e293b; stroke-width: 2; }}
+.cap-item .badge {{ color: #64748b; font-size: 10px; }}
+.search {{ width: 100%; padding: 8px 12px; background: #1e293b; border: 1px solid #334155; border-radius: 6px; color: #e2e8f0; font-size: 12px; margin-bottom: 12px; outline: none; }}
+.search:focus {{ border-color: #E185C8; }}
+svg text {{ font-family: -apple-system, sans-serif; pointer-events: none; }}
 .link {{ stroke: #334155; stroke-width: 1.5; fill: none; marker-end: url(#arrow); }}
+.node circle {{ cursor: pointer; transition: r 0.2s; }}
+.node circle:hover {{ r: 12; }}
 </style>
 </head>
 <body>
 <div class="header">
   <h1>pecto</h1>
-  <div class="stats">{name} — {files} files, {caps} capabilities, {deps} dependencies</div>
+  <div class="stats">{name} &mdash; {files} files, {caps} capabilities, {deps} dependencies</div>
 </div>
 <div class="container">
   <svg id="graph"></svg>
-  <div class="sidebar" id="sidebar"></div>
+  <div class="sidebar">
+    <input class="search" id="search" placeholder="Search capabilities..." />
+    <div id="sidebar-content"></div>
+  </div>
 </div>
 <script>
 const spec = {spec_json};
+const sidebar = document.getElementById('sidebar-content');
 
-// Sidebar
-const sidebar = document.getElementById('sidebar');
-let html = '<h2>Domains</h2>';
-if (spec.domains && spec.domains.length > 0) {{
-  spec.domains.forEach(d => {{
-    html += `<div class="domain"><div class="domain-header">${{d.name}} (${{d.capabilities.length}})</div>`;
-    d.capabilities.forEach(c => {{
-      const cap = spec.capabilities.find(x => x.name === c);
-      const type = cap ? (cap.endpoints?.length ? 'endpoints: ' + cap.endpoints.length :
-                          cap.entities?.length ? 'entities: ' + cap.entities.length :
-                          cap.operations?.length ? 'operations: ' + cap.operations.length : '') : '';
-      html += `<div class="cap-item">${{c}} <span class="type">${{type}}</span></div>`;
+function renderSidebar(filter) {{
+  let html = '';
+  if (spec.domains && spec.domains.length > 0) {{
+    spec.domains.forEach(d => {{
+      const caps = filter ? d.capabilities.filter(c => c.includes(filter)) : d.capabilities;
+      if (caps.length === 0) return;
+      html += `<div class="domain"><div class="domain-header">${{d.name}} (${{caps.length}})</div>`;
+      caps.forEach(c => {{
+        const cap = spec.capabilities.find(x => x.name === c);
+        const badge = cap ? (cap.endpoints?.length ? cap.endpoints.length + ' ep' :
+                             cap.entities?.length ? cap.entities.length + ' ent' :
+                             cap.operations?.length ? cap.operations.length + ' ops' : '') : '';
+        html += `<div class="cap-item"><span>${{c}}</span><span class="badge">${{badge}}</span></div>`;
+      }});
+      html += '</div>';
     }});
-    if (d.external_dependencies?.length) {{
-      html += `<div class="dep">depends on: ${{d.external_dependencies.join(', ')}}</div>`;
-    }}
+  }}
+  const domainCaps = new Set((spec.domains || []).flatMap(d => d.capabilities));
+  const orphans = spec.capabilities.filter(c => !domainCaps.has(c.name));
+  const filtered = filter ? orphans.filter(c => c.name.includes(filter)) : orphans;
+  if (filtered.length > 0) {{
+    html += '<div class="domain"><div class="domain-header">Other</div>';
+    filtered.forEach(c => {{
+      html += `<div class="cap-item">${{c.name}}</div>`;
+    }});
     html += '</div>';
-  }});
-}} else {{
-  spec.capabilities.forEach(c => {{
-    html += `<div class="cap-item">${{c.name}}</div>`;
-  }});
+  }}
+  sidebar.innerHTML = html || '<div style="color:#475569;text-align:center;padding:20px">No results</div>';
 }}
-sidebar.innerHTML = html;
+renderSidebar('');
+document.getElementById('search').addEventListener('input', e => renderSidebar(e.target.value));
 
 // Graph
 const deps = spec.dependencies || [];
-if (deps.length === 0) {{
-  document.getElementById('graph').innerHTML = '<text x="50%" y="50%" text-anchor="middle" fill="#64748b" font-size="16">No dependencies to visualize</text>';
-}} else {{
+const svg = d3.select('#graph');
+const width = svg.node().getBoundingClientRect().width;
+const height = svg.node().getBoundingClientRect().height;
+svg.attr('viewBox', [0, 0, width, height]);
+
+if (deps.length > 0) {{
   const nodes = [...new Set(deps.flatMap(d => [d.from, d.to]))].map(id => ({{ id }}));
-  const links = deps.map(d => ({{ source: d.from, target: d.to, kind: d.kind }}));
+  const links = deps.map(d => ({{ source: d.from, target: d.to }}));
 
-  const svg = d3.select('#graph');
-  const width = svg.node().getBoundingClientRect().width;
-  const height = svg.node().getBoundingClientRect().height;
+  // Zoom + Pan
+  const g = svg.append('g');
+  svg.call(d3.zoom()
+    .scaleExtent([0.3, 5])
+    .on('zoom', (event) => g.attr('transform', event.transform)));
 
-  svg.attr('viewBox', [0, 0, width, height]);
-
-  svg.append('defs').append('marker')
+  g.append('defs').append('marker')
     .attr('id', 'arrow').attr('viewBox', '0 -5 10 10')
     .attr('refX', 20).attr('refY', 0).attr('markerWidth', 6).attr('markerHeight', 6)
     .attr('orient', 'auto')
     .append('path').attr('d', 'M0,-5L10,0L0,5').attr('fill', '#475569');
 
-  const simulation = d3.forceSimulation(nodes)
-    .force('link', d3.forceLink(links).id(d => d.id).distance(120))
-    .force('charge', d3.forceManyBody().strength(-300))
-    .force('center', d3.forceCenter(width / 2, height / 2));
+  const sim = d3.forceSimulation(nodes)
+    .force('link', d3.forceLink(links).id(d => d.id).distance(100))
+    .force('charge', d3.forceManyBody().strength(-250))
+    .force('center', d3.forceCenter(width / 2, height / 2))
+    .force('collision', d3.forceCollide().radius(30));
 
-  const link = svg.append('g').selectAll('line').data(links).join('line').attr('class', 'link');
-
-  const colors = {{ calls: '#22d3ee', queries: '#a78bfa', listens: '#34d399', validates: '#fbbf24' }};
-
-  const node = svg.append('g').selectAll('g').data(nodes).join('g')
-    .call(d3.drag().on('start', (e, d) => {{ if (!e.active) simulation.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; }})
-                   .on('drag', (e, d) => {{ d.fx = e.x; d.fy = e.y; }})
-                   .on('end', (e, d) => {{ if (!e.active) simulation.alphaTarget(0); d.fx = null; d.fy = null; }}));
+  const link = g.append('g').selectAll('line').data(links).join('line').attr('class', 'link');
+  const node = g.append('g').selectAll('g').data(nodes).join('g').attr('class', 'node')
+    .call(d3.drag()
+      .on('start', (e, d) => {{ if (!e.active) sim.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; }})
+      .on('drag', (e, d) => {{ d.fx = e.x; d.fy = e.y; }})
+      .on('end', (e, d) => {{ if (!e.active) sim.alphaTarget(0); d.fx = null; d.fy = null; }}));
 
   node.append('circle').attr('r', 8).attr('fill', d => {{
-    const cap = spec.capabilities.find(c => c.name === d.id);
-    if (cap?.endpoints?.length) return '#22d3ee';
-    if (cap?.entities?.length) return '#a78bfa';
-    if (cap?.operations?.length) return '#34d399';
+    const c = spec.capabilities.find(x => x.name === d.id);
+    if (c?.endpoints?.length) return '#E185C8';
+    if (c?.entities?.length) return '#C9C9EB';
+    if (c?.operations?.length) return '#34d399';
     return '#64748b';
-  }});
+  }}).attr('stroke', '#1e293b').attr('stroke-width', 2);
 
   node.append('text').text(d => d.id).attr('x', 12).attr('y', 4).attr('fill', '#94a3b8').attr('font-size', 11);
 
-  simulation.on('tick', () => {{
+  sim.on('tick', () => {{
     link.attr('x1', d => d.source.x).attr('y1', d => d.source.y)
         .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
     node.attr('transform', d => `translate(${{d.x}},${{d.y}})`);
   }});
+}} else {{
+  svg.append('text').attr('x', width/2).attr('y', height/2).attr('text-anchor', 'middle')
+    .attr('fill', '#475569').attr('font-size', 14).text('No dependencies to visualize');
 }}
 </script>
 </body>
-</html>"##,
-        name = spec.name,
-        files = spec.files_analyzed,
-        caps = spec.capabilities.len(),
-        deps = spec.dependencies.len(),
-        spec_json = spec_json,
+</html>"##
     );
 
     std::fs::write(output, html)
