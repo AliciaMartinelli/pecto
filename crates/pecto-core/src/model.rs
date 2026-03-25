@@ -124,6 +124,8 @@ pub struct SecurityConfig {
     pub roles: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rate_limit: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cors: Option<String>,
 }
 
 /// A service-layer operation (non-HTTP).

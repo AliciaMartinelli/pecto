@@ -41,8 +41,18 @@ pub fn extract(file: &ParsedFile, ctx: &AnalysisContext) -> Option<Capability> {
                 let capability_name = to_kebab_case(&class_name.replace("Controller", ""));
 
                 let mut capability = Capability::new(capability_name, file.path.clone());
+                let class_cors = extract_cors(&annotations);
+                let class_rate_limit = extract_rate_limit(&annotations);
 
-                extract_endpoints_from_class(&node, source_bytes, &base_path, &mut capability, ctx);
+                extract_endpoints_from_class(
+                    &node,
+                    source_bytes,
+                    &base_path,
+                    &mut capability,
+                    ctx,
+                    class_cors.as_deref(),
+                    class_rate_limit.as_deref(),
+                );
 
                 return Some(capability);
             }
@@ -75,6 +85,8 @@ fn extract_endpoints_from_class(
     base_path: &str,
     capability: &mut Capability,
     ctx: &AnalysisContext,
+    class_cors: Option<&str>,
+    class_rate_limit: Option<&str>,
 ) {
     let body = match class_node.child_by_field_name("body") {
         Some(b) => b,
@@ -90,9 +102,15 @@ fn extract_endpoints_from_class(
         if member.kind() == "method_declaration" {
             let annotations = collect_annotations(&member, source);
 
-            if let Some(mut endpoint) =
-                extract_endpoint_from_method(&member, source, &annotations, base_path, ctx)
-            {
+            if let Some(mut endpoint) = extract_endpoint_from_method(
+                &member,
+                source,
+                &annotations,
+                base_path,
+                ctx,
+                class_cors,
+                class_rate_limit,
+            ) {
                 // Add exception handler behaviors to every endpoint
                 for b in &exception_behaviors {
                     if !endpoint.behaviors.iter().any(|eb| eb.name == b.name) {
@@ -111,6 +129,8 @@ fn extract_endpoint_from_method(
     annotations: &[AnnotationInfo],
     base_path: &str,
     ctx: &AnalysisContext,
+    class_cors: Option<&str>,
+    class_rate_limit: Option<&str>,
 ) -> Option<Endpoint> {
     let (http_method, method_path) = extract_http_method_and_path(annotations)?;
 
@@ -127,7 +147,7 @@ fn extract_endpoint_from_method(
         .child_by_field_name("type")
         .map(|t| node_text(&t, source));
 
-    let security = extract_security_config(annotations);
+    let security = extract_security_config(annotations, class_cors, class_rate_limit);
 
     // Determine success status: @ResponseStatus annotation overrides default
     let success_status = extract_response_status_annotation(annotations)
@@ -325,7 +345,11 @@ fn extract_validation_rules(
     rules
 }
 
-fn extract_security_config(annotations: &[AnnotationInfo]) -> Option<SecurityConfig> {
+fn extract_security_config(
+    annotations: &[AnnotationInfo],
+    class_cors: Option<&str>,
+    class_rate_limit: Option<&str>,
+) -> Option<SecurityConfig> {
     let mut auth = None;
     let mut roles = Vec::new();
 
@@ -349,15 +373,55 @@ fn extract_security_config(annotations: &[AnnotationInfo]) -> Option<SecurityCon
         }
     }
 
-    if auth.is_none() && roles.is_empty() {
+    // Method-level CORS/rate-limit override class-level
+    let cors = extract_cors(annotations).or_else(|| class_cors.map(String::from));
+    let rate_limit = extract_rate_limit(annotations).or_else(|| class_rate_limit.map(String::from));
+
+    if auth.is_none() && roles.is_empty() && cors.is_none() && rate_limit.is_none() {
         return None;
     }
 
     Some(SecurityConfig {
         authentication: auth,
         roles,
-        rate_limit: None,
+        rate_limit,
+        cors,
     })
+}
+
+/// Extract @CrossOrigin annotation details.
+fn extract_cors(annotations: &[AnnotationInfo]) -> Option<String> {
+    let ann = annotations.iter().find(|a| a.name == "CrossOrigin")?;
+
+    let origins = ann
+        .arguments
+        .get("origins")
+        .or(ann.value.as_ref())
+        .cloned()
+        .unwrap_or_else(|| "*".to_string());
+
+    Some(format!("origins: {}", origins))
+}
+
+/// Extract rate limiting annotation (@RateLimiter from Resilience4j, @RateLimit).
+fn extract_rate_limit(annotations: &[AnnotationInfo]) -> Option<String> {
+    for ann in annotations {
+        match ann.name.as_str() {
+            "RateLimiter" => {
+                let name = ann
+                    .arguments
+                    .get("name")
+                    .cloned()
+                    .unwrap_or_else(|| "default".to_string());
+                return Some(format!("rate-limiter: {}", name));
+            }
+            "RateLimit" | "RateLimited" => {
+                return Some("rate-limited".to_string());
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 /// Resolve field names and types from a DTO class found in the AnalysisContext.
@@ -1075,5 +1139,41 @@ public class UserController {
 
         // bio has no validation, should not appear
         assert!(endpoint.validation.iter().all(|r| r.field != "bio"));
+    }
+
+    #[test]
+    fn test_cors_and_rate_limiting() {
+        let source = r#"
+@RestController
+@RequestMapping("/api/public")
+@CrossOrigin(origins = "https://example.com")
+public class PublicController {
+
+    @GetMapping("/data")
+    public Data getData() {
+        return dataService.getPublic();
+    }
+
+    @PostMapping("/submit")
+    @RateLimiter(name = "submitLimit")
+    public Result submit(@RequestBody Payload payload) {
+        return dataService.process(payload);
+    }
+}
+"#;
+
+        let file = parse_file(source, "src/PublicController.java");
+        let capability = extract(&file, &empty_ctx()).unwrap();
+
+        // GET: should inherit class-level CORS
+        let get_endpoint = &capability.endpoints[0];
+        let sec = get_endpoint.security.as_ref().unwrap();
+        assert!(sec.cors.as_ref().unwrap().contains("https://example.com"));
+
+        // POST: should have rate limit + inherited CORS
+        let post_endpoint = &capability.endpoints[1];
+        let sec = post_endpoint.security.as_ref().unwrap();
+        assert!(sec.cors.as_ref().unwrap().contains("https://example.com"));
+        assert!(sec.rate_limit.as_ref().unwrap().contains("submitLimit"));
     }
 }
