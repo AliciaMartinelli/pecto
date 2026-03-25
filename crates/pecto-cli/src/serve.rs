@@ -136,7 +136,13 @@ if (deps.length > 0) {{
   const nodes = [...new Set(deps.flatMap(d => [d.from, d.to]))].map(id => ({{ id }}));
   const links = deps.map(d => ({{ source: d.from, target: d.to }}));
 
-  svg.append('defs').append('marker')
+  // Zoom + Pan
+  const g = svg.append('g');
+  svg.call(d3.zoom()
+    .scaleExtent([0.3, 5])
+    .on('zoom', (event) => g.attr('transform', event.transform)));
+
+  g.append('defs').append('marker')
     .attr('id', 'arrow').attr('viewBox', '0 -5 10 10')
     .attr('refX', 20).attr('refY', 0).attr('markerWidth', 6).attr('markerHeight', 6)
     .attr('orient', 'auto')
@@ -148,8 +154,8 @@ if (deps.length > 0) {{
     .force('center', d3.forceCenter(width / 2, height / 2))
     .force('collision', d3.forceCollide().radius(30));
 
-  const link = svg.append('g').selectAll('line').data(links).join('line').attr('class', 'link');
-  const node = svg.append('g').selectAll('g').data(nodes).join('g').attr('class', 'node')
+  const link = g.append('g').selectAll('line').data(links).join('line').attr('class', 'link');
+  const node = g.append('g').selectAll('g').data(nodes).join('g').attr('class', 'node')
     .call(d3.drag()
       .on('start', (e, d) => {{ if (!e.active) sim.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; }})
       .on('drag', (e, d) => {{ d.fx = e.x; d.fy = e.y; }})
@@ -157,8 +163,8 @@ if (deps.length > 0) {{
 
   node.append('circle').attr('r', 8).attr('fill', d => {{
     const c = spec.capabilities.find(x => x.name === d.id);
-    if (c?.endpoints?.length) return '#22d3ee';
-    if (c?.entities?.length) return '#a78bfa';
+    if (c?.endpoints?.length) return '#E185C8';
+    if (c?.entities?.length) return '#C9C9EB';
     if (c?.operations?.length) return '#34d399';
     return '#64748b';
   }}).attr('stroke', '#1e293b').attr('stroke-width', 2);
