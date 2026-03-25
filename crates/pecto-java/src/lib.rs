@@ -55,11 +55,12 @@ pub fn analyze_project(path: &Path) -> Result<ProjectSpec, JavaAnalysisError> {
             spec.capabilities.push(capability);
         }
 
-        // Future extractors will be added here:
-        // - extractors::entity::extract(file)
-        // - extractors::repository::extract(file)
-        // - extractors::service::extract(file)
-        // - extractors::scheduled::extract(file)
+        // Entity extraction
+        if let Some(capability) = extractors::entity::extract(file)
+            && !capability.is_empty()
+        {
+            spec.capabilities.push(capability);
+        }
     }
 
     Ok(spec)
