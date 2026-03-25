@@ -1,5 +1,5 @@
 use super::common::*;
-use crate::context::ParsedFile;
+use crate::context::{AnalysisContext, ParsedFile};
 use pecto_core::model::*;
 use std::collections::BTreeMap;
 use tree_sitter::Node;
@@ -22,7 +22,7 @@ const STATUS_MAPPINGS: &[(&str, u16, &str)] = &[
 ];
 
 /// Extract a Capability from a parsed file if it contains a Spring controller.
-pub fn extract(file: &ParsedFile) -> Option<Capability> {
+pub fn extract(file: &ParsedFile, ctx: &AnalysisContext) -> Option<Capability> {
     let root = file.tree.root_node();
     let source_bytes = file.source.as_bytes();
 
@@ -42,7 +42,7 @@ pub fn extract(file: &ParsedFile) -> Option<Capability> {
 
                 let mut capability = Capability::new(capability_name, file.path.clone());
 
-                extract_endpoints_from_class(&node, source_bytes, &base_path, &mut capability);
+                extract_endpoints_from_class(&node, source_bytes, &base_path, &mut capability, ctx);
 
                 return Some(capability);
             }
@@ -74,6 +74,7 @@ fn extract_endpoints_from_class(
     source: &[u8],
     base_path: &str,
     capability: &mut Capability,
+    ctx: &AnalysisContext,
 ) {
     let body = match class_node.child_by_field_name("body") {
         Some(b) => b,
@@ -90,7 +91,7 @@ fn extract_endpoints_from_class(
             let annotations = collect_annotations(&member, source);
 
             if let Some(mut endpoint) =
-                extract_endpoint_from_method(&member, source, &annotations, base_path)
+                extract_endpoint_from_method(&member, source, &annotations, base_path, ctx)
             {
                 // Add exception handler behaviors to every endpoint
                 for b in &exception_behaviors {
@@ -109,6 +110,7 @@ fn extract_endpoint_from_method(
     source: &[u8],
     annotations: &[AnnotationInfo],
     base_path: &str,
+    ctx: &AnalysisContext,
 ) -> Option<Endpoint> {
     let (http_method, method_path) = extract_http_method_and_path(annotations)?;
 
@@ -118,8 +120,8 @@ fn extract_endpoint_from_method(
         format!("{}{}", base_path.trim_end_matches('/'), method_path)
     };
 
-    let input = extract_method_input(method_node, source);
-    let validation = extract_validation_rules(method_node, source);
+    let input = extract_method_input(method_node, source, ctx);
+    let validation = extract_validation_rules(method_node, source, ctx);
 
     let return_type = method_node
         .child_by_field_name("type")
@@ -202,7 +204,11 @@ fn extract_path_from_annotation(ann: &AnnotationInfo) -> String {
     String::new()
 }
 
-fn extract_method_input(method_node: &Node, source: &[u8]) -> Option<EndpointInput> {
+fn extract_method_input(
+    method_node: &Node,
+    source: &[u8],
+    ctx: &AnalysisContext,
+) -> Option<EndpointInput> {
     let params_node = method_node.child_by_field_name("parameters")?;
     let mut body = None;
     let mut path_params = Vec::new();
@@ -227,9 +233,11 @@ fn extract_method_input(method_node: &Node, source: &[u8]) -> Option<EndpointInp
         for ann in &annotations {
             match ann.name.as_str() {
                 "RequestBody" => {
+                    let type_name = clean_generic_type(&param_type);
+                    let fields = resolve_type_fields(&type_name, ctx);
                     body = Some(TypeRef {
-                        name: clean_generic_type(&param_type),
-                        fields: BTreeMap::new(),
+                        name: type_name,
+                        fields,
                     });
                 }
                 "PathVariable" => {
@@ -267,7 +275,11 @@ fn extract_method_input(method_node: &Node, source: &[u8]) -> Option<EndpointInp
     })
 }
 
-fn extract_validation_rules(method_node: &Node, source: &[u8]) -> Vec<ValidationRule> {
+fn extract_validation_rules(
+    method_node: &Node,
+    source: &[u8],
+    ctx: &AnalysisContext,
+) -> Vec<ValidationRule> {
     let mut rules = Vec::new();
     let params_node = match method_node.child_by_field_name("parameters") {
         Some(p) => p,
@@ -286,14 +298,27 @@ fn extract_validation_rules(method_node: &Node, source: &[u8]) -> Vec<Validation
             .any(|a| a.name == "Valid" || a.name == "Validated");
 
         if has_valid {
-            let param_name = param
-                .child_by_field_name("name")
-                .map(|n| node_text(&n, source))
+            let param_type = param
+                .child_by_field_name("type")
+                .map(|t| node_text(&t, source))
                 .unwrap_or_default();
-            rules.push(ValidationRule {
-                field: param_name,
-                constraints: vec!["@Valid".to_string()],
-            });
+            let type_name = clean_generic_type(&param_type);
+
+            // Try to resolve field-level validation from the DTO class
+            let field_rules = resolve_validation_rules(&type_name, ctx);
+            if field_rules.is_empty() {
+                // Fallback: just record @Valid on the parameter
+                let param_name = param
+                    .child_by_field_name("name")
+                    .map(|n| node_text(&n, source))
+                    .unwrap_or_default();
+                rules.push(ValidationRule {
+                    field: param_name,
+                    constraints: vec!["@Valid".to_string()],
+                });
+            } else {
+                rules.extend(field_rules);
+            }
         }
     }
 
@@ -333,6 +358,141 @@ fn extract_security_config(annotations: &[AnnotationInfo]) -> Option<SecurityCon
         roles,
         rate_limit: None,
     })
+}
+
+/// Resolve field names and types from a DTO class found in the AnalysisContext.
+fn resolve_type_fields(type_name: &str, ctx: &AnalysisContext) -> BTreeMap<String, String> {
+    let mut fields = BTreeMap::new();
+    let Some(file) = ctx.find_class_by_name(type_name) else {
+        return fields;
+    };
+
+    let root = file.tree.root_node();
+    let source = file.source.as_bytes();
+
+    for i in 0..root.named_child_count() {
+        let node = root.named_child(i).unwrap();
+        if node.kind() == "class_declaration"
+            && get_class_name(&node, source) == type_name
+            && let Some(body) = node.child_by_field_name("body")
+        {
+            for j in 0..body.named_child_count() {
+                let member = body.named_child(j).unwrap();
+                if member.kind() == "field_declaration" {
+                    let field_type = member
+                        .child_by_field_name("type")
+                        .map(|t| node_text(&t, source))
+                        .unwrap_or_default();
+                    let field_name = extract_declarator_name(&member, source);
+                    if !field_name.is_empty() {
+                        fields.insert(field_name, field_type);
+                    }
+                }
+            }
+        }
+    }
+
+    fields
+}
+
+/// Resolve field-level validation rules from a DTO class.
+fn resolve_validation_rules(type_name: &str, ctx: &AnalysisContext) -> Vec<ValidationRule> {
+    let mut rules = Vec::new();
+    let Some(file) = ctx.find_class_by_name(type_name) else {
+        return rules;
+    };
+
+    let root = file.tree.root_node();
+    let source = file.source.as_bytes();
+
+    for i in 0..root.named_child_count() {
+        let node = root.named_child(i).unwrap();
+        if node.kind() == "class_declaration"
+            && get_class_name(&node, source) == type_name
+            && let Some(body) = node.child_by_field_name("body")
+        {
+            for j in 0..body.named_child_count() {
+                let member = body.named_child(j).unwrap();
+                if member.kind() != "field_declaration" {
+                    continue;
+                }
+
+                let annotations = collect_annotations(&member, source);
+                let constraints = extract_validation_constraints(&annotations);
+                if constraints.is_empty() {
+                    continue;
+                }
+
+                let field_name = extract_declarator_name(&member, source);
+                if !field_name.is_empty() {
+                    rules.push(ValidationRule {
+                        field: field_name,
+                        constraints,
+                    });
+                }
+            }
+        }
+    }
+
+    rules
+}
+
+/// Extract validation constraint strings from field annotations.
+fn extract_validation_constraints(annotations: &[AnnotationInfo]) -> Vec<String> {
+    let mut constraints = Vec::new();
+    for ann in annotations {
+        match ann.name.as_str() {
+            "NotNull" => constraints.push("@NotNull".to_string()),
+            "NotBlank" => constraints.push("@NotBlank".to_string()),
+            "NotEmpty" => constraints.push("@NotEmpty".to_string()),
+            "Email" => constraints.push("@Email".to_string()),
+            "Size" => {
+                let mut parts = Vec::new();
+                if let Some(v) = ann.arguments.get("min") {
+                    parts.push(format!("min={}", v));
+                }
+                if let Some(v) = ann.arguments.get("max") {
+                    parts.push(format!("max={}", v));
+                }
+                constraints.push(format!("@Size({})", parts.join(", ")));
+            }
+            "Min" => {
+                let val = ann.value.as_deref().unwrap_or("?");
+                constraints.push(format!("@Min({})", val));
+            }
+            "Max" => {
+                let val = ann.value.as_deref().unwrap_or("?");
+                constraints.push(format!("@Max({})", val));
+            }
+            "Pattern" => {
+                let regexp = ann
+                    .arguments
+                    .get("regexp")
+                    .map(|r| r.as_str())
+                    .unwrap_or("?");
+                constraints.push(format!("@Pattern(regexp={})", regexp));
+            }
+            "Positive" => constraints.push("@Positive".to_string()),
+            "Negative" => constraints.push("@Negative".to_string()),
+            "Past" => constraints.push("@Past".to_string()),
+            "Future" => constraints.push("@Future".to_string()),
+            _ => {}
+        }
+    }
+    constraints
+}
+
+/// Extract the variable name from a field_declaration's variable_declarator.
+fn extract_declarator_name(field_decl: &Node, source: &[u8]) -> String {
+    for i in 0..field_decl.named_child_count() {
+        let child = field_decl.named_child(i).unwrap();
+        if child.kind() == "variable_declarator"
+            && let Some(name) = child.child_by_field_name("name")
+        {
+            return node_text(&name, source);
+        }
+    }
+    String::new()
 }
 
 fn default_success_status(method: &HttpMethod) -> u16 {
@@ -595,6 +755,10 @@ mod tests {
         ParsedFile::parse(source.to_string(), path.to_string()).unwrap()
     }
 
+    fn empty_ctx() -> AnalysisContext {
+        AnalysisContext::new(vec![])
+    }
+
     #[test]
     fn test_simple_rest_controller() {
         let source = r#"
@@ -627,7 +791,7 @@ public class UserController {
 "#;
 
         let file = parse_file(source, "src/UserController.java");
-        let capability = extract(&file).unwrap();
+        let capability = extract(&file, &empty_ctx()).unwrap();
 
         assert_eq!(capability.name, "user");
         assert_eq!(capability.endpoints.len(), 4);
@@ -669,7 +833,7 @@ public class UserController {
 "#;
 
         let file = parse_file(source, "src/UserController.java");
-        let capability = extract(&file).unwrap();
+        let capability = extract(&file, &empty_ctx()).unwrap();
         let endpoint = &capability.endpoints[0];
 
         assert_eq!(endpoint.behaviors.len(), 2);
@@ -698,7 +862,7 @@ public class OrderController {
 "#;
 
         let file = parse_file(source, "src/OrderController.java");
-        let capability = extract(&file).unwrap();
+        let capability = extract(&file, &empty_ctx()).unwrap();
         let endpoint = &capability.endpoints[0];
 
         assert!(endpoint.behaviors.iter().any(|b| b.name == "not-found"));
@@ -731,7 +895,7 @@ public class ItemController {
 "#;
 
         let file = parse_file(source, "src/ItemController.java");
-        let capability = extract(&file).unwrap();
+        let capability = extract(&file, &empty_ctx()).unwrap();
 
         // GET endpoint: success + not-found
         let get_endpoint = &capability.endpoints[0];
@@ -775,7 +939,7 @@ public class EventController {
 "#;
 
         let file = parse_file(source, "src/EventController.java");
-        let capability = extract(&file).unwrap();
+        let capability = extract(&file, &empty_ctx()).unwrap();
 
         let create = &capability.endpoints[0];
         assert_eq!(create.behaviors[0].returns.status, 201);
@@ -811,7 +975,7 @@ public class ProductController {
 "#;
 
         let file = parse_file(source, "src/ProductController.java");
-        let capability = extract(&file).unwrap();
+        let capability = extract(&file, &empty_ctx()).unwrap();
 
         let get_endpoint = &capability.endpoints[0];
         // Should have: success, not-found (from ExceptionHandler), conflict (from ExceptionHandler)
@@ -828,5 +992,88 @@ public class ProductController {
                 .iter()
                 .any(|b| b.name == "conflict" && b.returns.status == 409)
         );
+    }
+
+    #[test]
+    fn test_bean_validation_deep_extraction() {
+        let dto_source = r#"
+public class CreateUserRequest {
+    @NotBlank
+    @Size(min = 2, max = 50)
+    private String name;
+
+    @NotBlank
+    @Email
+    private String email;
+
+    @Size(min = 8, max = 100)
+    private String password;
+
+    @Min(18)
+    private int age;
+
+    private String bio;
+}
+"#;
+
+        let controller_source = r#"
+@RestController
+@RequestMapping("/api/users")
+public class UserController {
+
+    @PostMapping
+    public User create(@Valid @RequestBody CreateUserRequest request) {
+        return userService.create(request);
+    }
+}
+"#;
+
+        let dto_file = parse_file(dto_source, "src/dto/CreateUserRequest.java");
+        let controller_file = parse_file(controller_source, "src/UserController.java");
+
+        let ctx = AnalysisContext::new(vec![dto_file]);
+        let capability = extract(&controller_file, &ctx).unwrap();
+        let endpoint = &capability.endpoints[0];
+
+        // Body should have resolved fields
+        let body = endpoint.input.as_ref().unwrap().body.as_ref().unwrap();
+        assert_eq!(body.name, "CreateUserRequest");
+        assert!(body.fields.contains_key("name"));
+        assert!(body.fields.contains_key("email"));
+        assert!(body.fields.contains_key("password"));
+        assert!(body.fields.contains_key("age"));
+        assert!(body.fields.contains_key("bio"));
+
+        // Validation rules should be field-level, not just @Valid
+        assert!(!endpoint.validation.is_empty());
+
+        // Check name field has @NotBlank and @Size
+        let name_rule = endpoint
+            .validation
+            .iter()
+            .find(|r| r.field == "name")
+            .expect("should have validation for 'name'");
+        assert!(name_rule.constraints.contains(&"@NotBlank".to_string()));
+        assert!(name_rule.constraints.iter().any(|c| c.contains("@Size")));
+
+        // Check email field has @NotBlank and @Email
+        let email_rule = endpoint
+            .validation
+            .iter()
+            .find(|r| r.field == "email")
+            .expect("should have validation for 'email'");
+        assert!(email_rule.constraints.contains(&"@NotBlank".to_string()));
+        assert!(email_rule.constraints.contains(&"@Email".to_string()));
+
+        // Check age has @Min
+        let age_rule = endpoint
+            .validation
+            .iter()
+            .find(|r| r.field == "age")
+            .expect("should have validation for 'age'");
+        assert!(age_rule.constraints.iter().any(|c| c.contains("@Min")));
+
+        // bio has no validation, should not appear
+        assert!(endpoint.validation.iter().all(|r| r.field != "bio"));
     }
 }

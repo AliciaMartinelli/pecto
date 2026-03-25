@@ -49,7 +49,7 @@ pub fn analyze_project(path: &Path) -> Result<ProjectSpec, JavaAnalysisError> {
 
     for file in &ctx.files {
         // Controller extraction
-        if let Some(capability) = extractors::controller::extract(file)
+        if let Some(capability) = extractors::controller::extract(file, &ctx)
             && !capability.is_empty()
         {
             spec.capabilities.push(capability);
