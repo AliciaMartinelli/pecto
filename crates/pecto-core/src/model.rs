@@ -247,3 +247,106 @@ impl Capability {
             && self.scheduled_tasks.is_empty()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_project_spec_new() {
+        let spec = ProjectSpec::new("my-project");
+        assert_eq!(spec.name, "my-project");
+        assert!(spec.analyzed.is_some());
+        assert_eq!(spec.files_analyzed, 0);
+        assert!(spec.capabilities.is_empty());
+    }
+
+    #[test]
+    fn test_timestamp_is_dynamic() {
+        let spec = ProjectSpec::new("test");
+        let ts = spec.analyzed.unwrap();
+        // Should be a valid ISO 8601 timestamp, not the old hardcoded one
+        assert!(ts.contains('T'));
+        assert!(ts.ends_with('Z'));
+        assert_ne!(ts, "2026-03-25T00:00:00Z");
+        // Should contain the current year (2026)
+        assert!(ts.starts_with("202"));
+    }
+
+    #[test]
+    fn test_capability_is_empty() {
+        let cap = Capability::new("test", "test.java");
+        assert!(cap.is_empty());
+
+        let mut cap_with_endpoint = Capability::new("test", "test.java");
+        cap_with_endpoint.endpoints.push(Endpoint {
+            method: HttpMethod::Get,
+            path: "/test".to_string(),
+            input: None,
+            validation: Vec::new(),
+            behaviors: Vec::new(),
+            security: None,
+        });
+        assert!(!cap_with_endpoint.is_empty());
+    }
+
+    #[test]
+    fn test_serialization_round_trip_yaml() {
+        let mut spec = ProjectSpec::new("round-trip-test");
+        spec.files_analyzed = 5;
+
+        let mut cap = Capability::new("user", "User.java");
+        cap.endpoints.push(Endpoint {
+            method: HttpMethod::Get,
+            path: "/api/users".to_string(),
+            input: None,
+            validation: Vec::new(),
+            behaviors: vec![Behavior {
+                name: "success".to_string(),
+                condition: None,
+                returns: ResponseSpec {
+                    status: 200,
+                    body: Some(TypeRef {
+                        name: "User".to_string(),
+                        fields: BTreeMap::new(),
+                    }),
+                },
+                side_effects: Vec::new(),
+            }],
+            security: None,
+        });
+        spec.capabilities.push(cap);
+
+        let yaml = crate::output::to_yaml(&spec).unwrap();
+        assert!(yaml.contains("round-trip-test"));
+        assert!(yaml.contains("/api/users"));
+        assert!(yaml.contains("GET")); // HttpMethod serialized as uppercase
+
+        // Deserialize back
+        let parsed: ProjectSpec = serde_yaml::from_str(&yaml).unwrap();
+        assert_eq!(parsed.name, "round-trip-test");
+        assert_eq!(parsed.capabilities.len(), 1);
+        assert_eq!(parsed.capabilities[0].endpoints[0].path, "/api/users");
+    }
+
+    #[test]
+    fn test_serialization_round_trip_json() {
+        let spec = ProjectSpec::new("json-test");
+        let json = crate::output::to_json(&spec).unwrap();
+        assert!(json.contains("json-test"));
+
+        let parsed: ProjectSpec = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.name, "json-test");
+    }
+
+    #[test]
+    fn test_empty_fields_skipped_in_yaml() {
+        let spec = ProjectSpec::new("skip-test");
+        let yaml = crate::output::to_yaml(&spec).unwrap();
+        // Empty capabilities list should still show up (it's a top-level field)
+        // but empty sub-fields (endpoints, operations, etc.) should be skipped
+        assert!(!yaml.contains("endpoints"));
+        assert!(!yaml.contains("operations"));
+        assert!(!yaml.contains("entities"));
+    }
+}
