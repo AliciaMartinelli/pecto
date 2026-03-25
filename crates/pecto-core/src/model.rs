@@ -179,8 +179,53 @@ impl ProjectSpec {
 }
 
 fn chrono_now() -> String {
-    // Simple ISO 8601 without chrono dependency
-    "2026-03-25T00:00:00Z".to_string()
+    use std::time::SystemTime;
+    let duration = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap_or_default();
+    let secs = duration.as_secs();
+    // Convert to ISO 8601 UTC without external dependency
+    let days = secs / 86400;
+    let time_secs = secs % 86400;
+    let hours = time_secs / 3600;
+    let minutes = (time_secs % 3600) / 60;
+    let seconds = time_secs % 60;
+    // Days since 1970-01-01
+    let (year, month, day) = days_to_ymd(days);
+    format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
+        year, month, day, hours, minutes, seconds
+    )
+}
+
+fn days_to_ymd(mut days: u64) -> (u64, u64, u64) {
+    let mut year = 1970;
+    loop {
+        let days_in_year = if is_leap(year) { 366 } else { 365 };
+        if days < days_in_year {
+            break;
+        }
+        days -= days_in_year;
+        year += 1;
+    }
+    let month_days: &[u64] = if is_leap(year) {
+        &[31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    } else {
+        &[31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    };
+    let mut month = 1;
+    for &md in month_days {
+        if days < md {
+            break;
+        }
+        days -= md;
+        month += 1;
+    }
+    (year, month, days + 1)
+}
+
+fn is_leap(year: u64) -> bool {
+    (year.is_multiple_of(4) && !year.is_multiple_of(100)) || year.is_multiple_of(400)
 }
 
 impl Capability {

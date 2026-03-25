@@ -22,11 +22,20 @@ cargo install pecto
 # Analyze a Java/Spring Boot project
 pecto init ./my-spring-app
 
+# Analyze a C#/.NET project (auto-detected)
+pecto init ./my-dotnet-app
+
+# Explicitly specify language
+pecto init ./my-app --language csharp
+
 # Show a specific capability
 pecto show user-authentication
 
 # Check for behavior drift
-pecto verify
+pecto verify spec.yaml
+
+# Compare behaviors between git refs
+pecto diff main HEAD
 ```
 
 ## Example Output
@@ -59,8 +68,8 @@ capability: user-authentication
 
 | Language | Frameworks | Status |
 |----------|-----------|--------|
-| **Java** | Spring Boot, JPA/Hibernate, Spring Security | In Progress |
-| **C#** | ASP.NET Core, WPF, Entity Framework | Planned |
+| **Java** | Spring Boot, JPA/Hibernate, Spring Security | Ready |
+| **C#** | ASP.NET Core, Entity Framework, DI | Ready |
 | **Python** | Django, Flask, FastAPI | Planned |
 | **TypeScript** | Express, NestJS, Next.js | Planned |
 
