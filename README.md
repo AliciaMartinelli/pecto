@@ -240,6 +240,17 @@ capabilities:
 | **Services** | `*Service`/`*Repository`/`*UseCase` classes, public methods |
 | **Celery Tasks** | `@shared_task`, `@app.task`, `@periodic_task` |
 
+### TypeScript / JavaScript
+
+| Feature | What pecto extracts |
+|---------|-------------------|
+| **Express** | `router.get`/`app.post`/etc., `:param` path params, route strings |
+| **NestJS** | `@Controller`, `@Get`/`@Post`/etc., `@UseGuards` security |
+| **Next.js** | App Router `export function GET/POST` in route.ts, path from file structure |
+| **TypeORM** | `@Entity`, `@Column`, `@PrimaryGeneratedColumn`, relationships |
+| **Mongoose** | `new Schema({...})` detection |
+| **Services** | `@Injectable`, `*Service`/`*Repository` classes, public methods |
+
 ## Performance
 
 | Project | Files | Capabilities | Time |
