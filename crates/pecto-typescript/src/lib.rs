@@ -73,6 +73,18 @@ pub fn analyze_project(path: &Path) -> Result<ProjectSpec, TypeScriptAnalysisErr
         {
             spec.capabilities.push(capability);
         }
+
+        if let Some(capability) = extractors::entity::extract(file)
+            && !capability.is_empty()
+        {
+            spec.capabilities.push(capability);
+        }
+
+        if let Some(capability) = extractors::service::extract(file)
+            && !capability.is_empty()
+        {
+            spec.capabilities.push(capability);
+        }
     }
 
     Ok(spec)
