@@ -85,6 +85,13 @@ pub fn analyze_project(path: &Path) -> Result<ProjectSpec, CSharpAnalysisError> 
         {
             spec.capabilities.push(capability);
         }
+
+        // REST client consumption (RestSharp/HttpClient)
+        if let Some(capability) = extractors::rest_client::extract(file)
+            && !capability.is_empty()
+        {
+            spec.capabilities.push(capability);
+        }
     }
 
     dependencies::resolve_dependencies(&mut spec, &ctx);
