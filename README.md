@@ -227,6 +227,19 @@ capabilities:
 | **Background Tasks** | `BackgroundService`, `IHostedService`, `TimeSpan.From*` timer patterns |
 | **Parameters** | `[FromBody]`, `[FromRoute]`, `[FromQuery]`, async `Task<ActionResult<T>>` unwrapping |
 
+### Python
+
+| Feature | What pecto extracts |
+|---------|-------------------|
+| **FastAPI** | `@router.get`/`@app.post`/etc., path params from type hints, `Depends()` security |
+| **Flask** | `@app.route`/`@blueprint.route`, methods kwarg, path params |
+| **Django REST** | `ModelViewSet` CRUD, `@api_view` function views |
+| **SQLAlchemy** | `Column()`, `relationship()`, `__tablename__`, constraints |
+| **Django Models** | `models.Model`, `CharField`, `ForeignKey`, `ManyToManyField` |
+| **Pydantic** | `BaseModel`, `Field()` with min/max_length, gt/lt constraints |
+| **Services** | `*Service`/`*Repository`/`*UseCase` classes, public methods |
+| **Celery Tasks** | `@shared_task`, `@app.task`, `@periodic_task` |
+
 ## Performance
 
 | Project | Files | Capabilities | Time |
