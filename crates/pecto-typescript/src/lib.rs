@@ -62,12 +62,18 @@ pub fn analyze_project(path: &Path) -> Result<ProjectSpec, TypeScriptAnalysisErr
     }
 
     let files_analyzed = parsed_files.len();
-    let _ctx = AnalysisContext::new(parsed_files);
+    let ctx = AnalysisContext::new(parsed_files);
 
     let mut spec = ProjectSpec::new(project_name);
     spec.files_analyzed = files_analyzed;
 
-    // Extractors will be added here as they are implemented
+    for file in &ctx.files {
+        if let Some(capability) = extractors::controller::extract(file)
+            && !capability.is_empty()
+        {
+            spec.capabilities.push(capability);
+        }
+    }
 
     Ok(spec)
 }
