@@ -204,11 +204,13 @@ capabilities:
 | Feature | What pecto extracts |
 |---------|-------------------|
 | **Spring Controllers** | `@RestController`, `@GetMapping`/`@PostMapping`/etc., path variables, request params, request body |
+| **JAX-RS Resources** | `@Path`, `@GET`/`@POST`/etc., `@PathParam`, `@QueryParam`, `@RolesAllowed`, `@PermitAll` |
 | **JPA Entities** | `@Entity`, `@Table`, field types, `@Id`, `@Column`, relationships (`@OneToMany`, `@ManyToOne`) |
 | **Spring Data Repos** | `JpaRepository<T, ID>`, CRUD operations, custom query methods, `@Query` |
-| **Services** | `@Service`, public methods, `@Transactional`, side effects (DB ops, events, service calls) |
+| **JPA Repositories** | `@PersistenceContext EntityManager`, custom base repository classes |
+| **Services** | `@Service`, `@Stateless`, `@RequestScoped`, `@Inject`, `@Transactional`, side effects |
 | **Validation** | `@Valid` with cross-file DTO resolution: `@NotBlank`, `@Email`, `@Size`, `@Min`, `@Max`, `@Pattern` |
-| **Security** | `@PreAuthorize`, `@Secured`, `@CrossOrigin`, `@RateLimiter` |
+| **Security** | `@PreAuthorize`, `@Secured`, `@CrossOrigin`, `@RateLimiter`, `@RolesAllowed`, `@PermitAll` |
 | **Error Handling** | `throw ResponseStatusException`, `ResponseEntity.notFound()`, `@ExceptionHandler` |
 | **Scheduled Tasks** | `@Scheduled(cron=...)`, `@EventListener` |
 
