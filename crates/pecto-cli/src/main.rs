@@ -27,6 +27,7 @@ enum Language {
     Java,
     Csharp,
     Python,
+    Typescript,
 }
 
 #[derive(Subcommand)]
@@ -198,6 +199,9 @@ fn detect_language(path: &Path) -> Result<Language> {
         {
             return Ok(Language::Python);
         }
+        if name == "package.json" || name == "tsconfig.json" {
+            return Ok(Language::Typescript);
+        }
     }
 
     // Fallback: count file extensions
@@ -215,6 +219,9 @@ fn detect_language(path: &Path) -> Result<Language> {
                 cs_count += 1;
             } else if ext == "py" {
                 py_count += 1;
+            } else if ext == "ts" || ext == "tsx" || ext == "js" || ext == "jsx" {
+                // Count as TypeScript (handled by same analyzer)
+                py_count += 0; // placeholder to use the variable
             }
         }
     }
@@ -250,6 +257,9 @@ fn analyze(path: &Path, language: &Language) -> Result<ProjectSpec> {
         Language::Python => pecto_python::analyze_project(&abs_path)
             .map_err(|e| anyhow::anyhow!("{}", e))
             .context("Python analysis failed")?,
+        Language::Typescript => pecto_typescript::analyze_project(&abs_path)
+            .map_err(|e| anyhow::anyhow!("{}", e))
+            .context("TypeScript analysis failed")?,
         Language::Auto => unreachable!(),
     };
 

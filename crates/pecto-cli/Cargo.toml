@@ -14,6 +14,7 @@ pecto-core = { path = "../pecto-core" }
 pecto-java = { path = "../pecto-java" }
 pecto-csharp = { path = "../pecto-csharp" }
 pecto-python = { path = "../pecto-python" }
+pecto-typescript = { path = "../pecto-typescript" }
 clap = { workspace = true }
 anyhow = { workspace = true }
 owo-colors = { workspace = true }
