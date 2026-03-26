@@ -66,6 +66,24 @@ pub fn analyze_project(path: &Path) -> Result<ProjectSpec, PythonAnalysisError> 
         {
             spec.capabilities.push(capability);
         }
+
+        if let Some(capability) = extractors::entity::extract(file)
+            && !capability.is_empty()
+        {
+            spec.capabilities.push(capability);
+        }
+
+        if let Some(capability) = extractors::service::extract(file)
+            && !capability.is_empty()
+        {
+            spec.capabilities.push(capability);
+        }
+
+        if let Some(capability) = extractors::scheduled::extract(file)
+            && !capability.is_empty()
+        {
+            spec.capabilities.push(capability);
+        }
     }
 
     Ok(spec)
