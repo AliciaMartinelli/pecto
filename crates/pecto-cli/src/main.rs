@@ -379,7 +379,22 @@ fn cmd_verify(spec_path: &Path, path: &Path, language: &Language) -> Result<()> 
         path.display()
     );
 
-    let current_spec = analyze(path, language)?;
+    let mut current_spec = analyze(path, language)?;
+
+    // Parse the stored spec's timestamp and use it for comparison
+    // so that the `analyzed` field doesn't cause false drift detection
+    let stored_timestamp = if format == "json" {
+        serde_json::from_str::<pecto_core::model::ProjectSpec>(&spec_content)
+            .ok()
+            .and_then(|s| s.analyzed)
+    } else {
+        serde_yaml::from_str::<pecto_core::model::ProjectSpec>(&spec_content)
+            .ok()
+            .and_then(|s| s.analyzed)
+    };
+    if let Some(ts) = stored_timestamp {
+        current_spec.analyzed = Some(ts);
+    }
 
     let current_str = match format {
         "json" => pecto_core::output::to_json(&current_spec)
