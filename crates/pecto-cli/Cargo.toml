@@ -13,6 +13,7 @@ path = "src/main.rs"
 pecto-core = { path = "../pecto-core" }
 pecto-java = { path = "../pecto-java" }
 pecto-csharp = { path = "../pecto-csharp" }
+pecto-python = { path = "../pecto-python" }
 clap = { workspace = true }
 anyhow = { workspace = true }
 owo-colors = { workspace = true }

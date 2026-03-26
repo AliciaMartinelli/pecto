@@ -26,6 +26,7 @@ enum Language {
     Auto,
     Java,
     Csharp,
+    Python,
 }
 
 #[derive(Subcommand)]
@@ -190,11 +191,19 @@ fn detect_language(path: &Path) -> Result<Language> {
         if name == "pom.xml" || name == "build.gradle" || name == "build.gradle.kts" {
             return Ok(Language::Java);
         }
+        if name == "pyproject.toml"
+            || name == "setup.py"
+            || name == "requirements.txt"
+            || name == "manage.py"
+        {
+            return Ok(Language::Python);
+        }
     }
 
     // Fallback: count file extensions
     let mut java_count = 0usize;
     let mut cs_count = 0usize;
+    let mut py_count = 0usize;
     for entry in walkdir::WalkDir::new(path)
         .into_iter()
         .filter_map(|e| e.ok())
@@ -204,11 +213,15 @@ fn detect_language(path: &Path) -> Result<Language> {
                 java_count += 1;
             } else if ext == "cs" {
                 cs_count += 1;
+            } else if ext == "py" {
+                py_count += 1;
             }
         }
     }
 
-    if cs_count > java_count && cs_count > 0 {
+    if py_count > java_count && py_count > cs_count && py_count > 0 {
+        Ok(Language::Python)
+    } else if cs_count > java_count && cs_count > 0 {
         Ok(Language::Csharp)
     } else if java_count > 0 {
         Ok(Language::Java)
@@ -234,6 +247,9 @@ fn analyze(path: &Path, language: &Language) -> Result<ProjectSpec> {
         Language::Csharp => pecto_csharp::analyze_project(&abs_path)
             .map_err(|e| anyhow::anyhow!("{}", e))
             .context("C# analysis failed")?,
+        Language::Python => pecto_python::analyze_project(&abs_path)
+            .map_err(|e| anyhow::anyhow!("{}", e))
+            .context("Python analysis failed")?,
         Language::Auto => unreachable!(),
     };
 
