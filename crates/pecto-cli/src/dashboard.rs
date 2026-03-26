@@ -193,9 +193,56 @@ function showDetail(name) {{
       html += `<div class="detail-item"><span class="method">${{method}}</span> ${{ep.path}}`;
       if (ep.security?.authentication) html += ' &#128274;';
       html += `</div>`;
+
+      // Security details
+      if (ep.security) {{
+        const sec = ep.security;
+        if (sec.roles?.length) html += `<div class="detail-item" style="padding-left:16px;color:#FBBF24">roles: ${{sec.roles.join(', ')}}</div>`;
+        if (sec.cors) html += `<div class="detail-item" style="padding-left:16px;color:#64748b">cors: ${{sec.cors}}</div>`;
+        if (sec.rate_limit) html += `<div class="detail-item" style="padding-left:16px;color:#64748b">rate limit: ${{sec.rate_limit}}</div>`;
+      }}
+
+      // Input details
+      if (ep.input) {{
+        if (ep.input.body) {{
+          html += `<div class="detail-item" style="padding-left:16px;color:#C9C9EB">body: ${{ep.input.body.name}}</div>`;
+          if (ep.input.body.fields) {{
+            Object.entries(ep.input.body.fields).forEach(([k, v]) => {{
+              html += `<div class="detail-item" style="padding-left:28px;color:#475569">${{k}}: ${{v}}</div>`;
+            }});
+          }}
+        }}
+        if (ep.input.path_params?.length) {{
+          ep.input.path_params.forEach(p => {{
+            html += `<div class="detail-item" style="padding-left:16px;color:#FFA161">path: ${{p.name}} (${{p.param_type || p.type || ''}})</div>`;
+          }});
+        }}
+        if (ep.input.query_params?.length) {{
+          ep.input.query_params.forEach(p => {{
+            html += `<div class="detail-item" style="padding-left:16px;color:#FFA161">query: ${{p.name}}${{p.required ? '' : ' (optional)'}}</div>`;
+          }});
+        }}
+      }}
+
+      // Validation rules
+      if (ep.validation?.length) {{
+        ep.validation.forEach(v => {{
+          html += `<div class="detail-item" style="padding-left:16px;color:#E185C8">${{v.field}}: ${{v.constraints?.join(', ') || ''}}</div>`;
+        }});
+      }}
+
+      // Behaviors (errors + success side effects)
       if (ep.behaviors) {{
-        ep.behaviors.filter(b => b.name !== 'success').forEach(b => {{
-          html += `<div class="detail-item" style="padding-left:16px;color:#64748b">${{b.name}} &rarr; ${{b.returns?.status}}</div>`;
+        ep.behaviors.forEach(b => {{
+          if (b.name !== 'success') {{
+            html += `<div class="detail-item" style="padding-left:16px;color:#DF0F51">${{b.name}} &rarr; ${{b.returns?.status}}</div>`;
+          }}
+          if (b.side_effects?.length) {{
+            b.side_effects.forEach(se => {{
+              const desc = se.table || se.name || se.description || se.target || '';
+              html += `<div class="detail-item" style="padding-left:16px;color:#34d399">&rarr; ${{se.kind || Object.keys(se)[0]}}: ${{desc}}</div>`;
+            }});
+          }}
         }});
       }}
     }});
@@ -205,10 +252,15 @@ function showDetail(name) {{
   if (cap.entities?.length) {{
     html += `<div class="detail-section"><h4>Entities (${{cap.entities.length}})</h4>`;
     cap.entities.forEach(ent => {{
-      html += `<div class="detail-item" style="font-weight:600">${{ent.name}} <span style="color:#475569">(${{ent.table}})</span></div>`;
+      html += `<div class="detail-item" style="font-weight:600">${{ent.name}} <span style="color:#475569">table: ${{ent.table}}</span></div>`;
       (ent.fields || []).forEach(f => {{
-        const constraints = f.constraints?.length ? ' <span style="color:#64748b">' + f.constraints.join(', ') + '</span>' : '';
-        html += `<div class="detail-item" style="padding-left:12px">${{f.name}}: <span style="color:#64748b">${{f.type || f.field_type || ''}}</span>${{constraints}}</div>`;
+        const type = f.type || f.field_type || '';
+        html += `<div class="detail-item" style="padding-left:12px"><span style="color:#e2e8f0">${{f.name}}</span> <span style="color:#64748b">${{type}}</span></div>`;
+        if (f.constraints?.length) {{
+          f.constraints.forEach(c => {{
+            html += `<div class="detail-item" style="padding-left:24px;color:#E185C8;font-size:10px">${{c}}</div>`;
+          }});
+        }}
       }});
     }});
     html += '</div>';
