@@ -240,6 +240,9 @@ fn analyze(path: &Path, language: &Language) -> Result<ProjectSpec> {
     // Post-processing: cluster capabilities into domains
     pecto_core::domains::cluster_domains(&mut spec);
 
+    // Sort capabilities for stable output across platforms
+    spec.capabilities.sort_by(|a, b| a.name.cmp(&b.name));
+
     Ok(spec)
 }
 
@@ -395,6 +398,11 @@ fn cmd_verify(spec_path: &Path, path: &Path, language: &Language) -> Result<()> 
     if let Some(ts) = stored_timestamp {
         current_spec.analyzed = Some(ts);
     }
+
+    // Sort capabilities by name for stable comparison (file traversal order varies by platform)
+    current_spec
+        .capabilities
+        .sort_by(|a, b| a.name.cmp(&b.name));
 
     let current_str = match format {
         "json" => pecto_core::output::to_json(&current_spec)
