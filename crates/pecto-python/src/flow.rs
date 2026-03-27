@@ -134,12 +134,28 @@ fn trace_node_recursive(
     }
     match node.kind() {
         "call" => {
-            let text = node_text(node, source);
-
-            // Classify the call
-            if let Some(step) = classify_method_call(&text) {
-                steps.push(step);
-                return;
+            // Extract function name from AST (avoids multiline arg pollution)
+            if let Some(func_node) = node.child_by_field_name("function") {
+                let func_text = node_text(&func_node, source);
+                if let Some(step) = classify_method_call(&func_text) {
+                    steps.push(step);
+                    return;
+                }
+                // Bare function call (no dot): e.g., send_email(...)
+                if !func_text.contains('.') && !func_text.is_empty()
+                    && func_text.chars().next().is_some_and(|c| c.is_lowercase())
+                    && !is_excluded_py_target(&func_text)
+                {
+                    steps.push(FlowStep {
+                        actor: "".to_string(),
+                        method: func_text.clone(),
+                        kind: FlowStepKind::ServiceCall,
+                        description: format!("Call: {}()", func_text),
+                        condition: None,
+                        children: Vec::new(),
+                    });
+                    return;
+                }
             }
         }
         "raise_statement" => {
