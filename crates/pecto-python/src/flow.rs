@@ -129,6 +129,9 @@ fn trace_node_recursive(
     depth: usize,
     steps: &mut Vec<FlowStep>,
 ) {
+    if depth >= MAX_DEPTH {
+        return;
+    }
     match node.kind() {
         "call" => {
             let text = node_text(node, source);
@@ -418,11 +421,10 @@ fn find_endpoint_function_text(
                             continue;
                         }
                     }
-                    if let Some(func) = node.child_by_field_name("definition") {
-                        if let Some(body) = func.child_by_field_name("body") {
+                    if let Some(func) = node.child_by_field_name("definition")
+                        && let Some(body) = func.child_by_field_name("body") {
                             return Some(node_text(&body, source));
                         }
-                    }
                 }
             }
         }

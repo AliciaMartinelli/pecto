@@ -126,24 +126,22 @@ fn find_endpoint_method_body<'a>(
             let annotations = collect_annotations(&member, source);
 
             // Try Spring style: @GetMapping("/path"), @PostMapping, etc.
-            if let Some((method, path)) = extract_http_method_and_path(&annotations) {
-                if method == endpoint.method
+            if let Some((method, path)) = extract_http_method_and_path(&annotations)
+                && method == endpoint.method
                     && !path.is_empty()
                     && endpoint.path.ends_with(&path)
                 {
                     return member.child_by_field_name("body");
                 }
-            }
 
             // Try JAX-RS style: @GET + @Path("/path")
-            if let Some(method) = extract_jaxrs_http_method(&annotations) {
-                if method == endpoint.method {
+            if let Some(method) = extract_jaxrs_http_method(&annotations)
+                && method == endpoint.method {
                     let path = extract_jaxrs_path(&annotations);
                     if (!path.is_empty() && endpoint.path.ends_with(&path)) || path.is_empty() {
                         return member.child_by_field_name("body");
                     }
                 }
-            }
         }
     }
     None
@@ -223,13 +221,11 @@ fn find_method_in_class<'a>(
 ) -> Option<tree_sitter::Node<'a>> {
     for i in 0..class_body.named_child_count() {
         let member = class_body.named_child(i).unwrap();
-        if member.kind() == "method_declaration" {
-            if let Some(name_node) = member.child_by_field_name("name") {
-                if node_text(&name_node, source) == method_name {
+        if member.kind() == "method_declaration"
+            && let Some(name_node) = member.child_by_field_name("name")
+                && node_text(&name_node, source) == method_name {
                     return member.child_by_field_name("body");
                 }
-            }
-        }
     }
     None
 }
@@ -248,20 +244,17 @@ fn trace_node_recursive(
 
             // Check for bare method call (no receiver/object) — internal method
             let has_object = node.child_by_field_name("object").is_some();
-            if !has_object {
-                if let Some(name_node) = node.child_by_field_name("name") {
+            if !has_object
+                && let Some(name_node) = node.child_by_field_name("name") {
                     let method_name = node_text(&name_node, source);
                     // Try to resolve and trace the internal method
-                    if let Some(cb) = class_body {
-                        if depth < MAX_DEPTH {
-                            if let Some(target_body) = find_method_in_class(cb, &method_name, source) {
+                    if let Some(cb) = class_body
+                        && depth < MAX_DEPTH
+                            && let Some(target_body) = find_method_in_class(cb, &method_name, source) {
                                 trace_node_recursive(&target_body, source, ctx, depth + 1, steps, Some(cb));
                                 return;
                             }
-                        }
-                    }
                 }
-            }
 
             let step = classify_method_call(&text, ctx, depth);
             if let Some(s) = step {

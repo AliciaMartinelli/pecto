@@ -167,13 +167,11 @@ fn find_method_in_class<'a>(
 ) -> Option<tree_sitter::Node<'a>> {
     for i in 0..class_body.named_child_count() {
         let member = class_body.named_child(i).unwrap();
-        if member.kind() == "method_declaration" {
-            if let Some(name_node) = member.child_by_field_name("name") {
-                if node_text(&name_node, source) == method_name {
+        if member.kind() == "method_declaration"
+            && let Some(name_node) = member.child_by_field_name("name")
+                && node_text(&name_node, source) == method_name {
                     return member.child_by_field_name("body");
                 }
-            }
-        }
     }
     None
 }
@@ -193,9 +191,9 @@ fn trace_node_recursive(
             if let Some(expr) = node.child_by_field_name("function") {
                 if expr.kind() == "identifier" {
                     let method_name = node_text(&expr, source);
-                    if let Some(cb) = class_body {
-                        if depth < MAX_DEPTH {
-                            if let Some(target_body) =
+                    if let Some(cb) = class_body
+                        && depth < MAX_DEPTH
+                            && let Some(target_body) =
                                 find_method_in_class(cb, &method_name, source)
                             {
                                 trace_node_recursive(
@@ -203,13 +201,11 @@ fn trace_node_recursive(
                                 );
                                 return;
                             }
-                        }
-                    }
                 }
 
                 // _service.Method() or service.Method()
-                if expr.kind() == "member_access_expression" {
-                    if let Some(obj) = expr.child_by_field_name("expression") {
+                if expr.kind() == "member_access_expression"
+                    && let Some(obj) = expr.child_by_field_name("expression") {
                         let obj_text = node_text(&obj, source);
                         if let Some(name) = expr.child_by_field_name("name") {
                             let method_name = node_text(&name, source);
@@ -219,9 +215,9 @@ fn trace_node_recursive(
 
                             if actual_obj == "this" {
                                 // this.Method() → resolve internally
-                                if let Some(cb) = class_body {
-                                    if depth < MAX_DEPTH {
-                                        if let Some(target_body) =
+                                if let Some(cb) = class_body
+                                    && depth < MAX_DEPTH
+                                        && let Some(target_body) =
                                             find_method_in_class(cb, &method_name, source)
                                         {
                                             trace_node_recursive(
@@ -229,12 +225,9 @@ fn trace_node_recursive(
                                             );
                                             return;
                                         }
-                                    }
-                                }
                             }
                         }
                     }
-                }
             }
 
             if let Some(step) = classify_method_call(&text) {
@@ -473,21 +466,19 @@ fn find_endpoint_method_text(
     };
 
     fn walk<'a>(node: &'a tree_sitter::Node<'a>, kind: &str, source: &[u8], attr: &str) -> Option<String> {
-        if node.kind() == kind {
-            if let Some(body) = node.child_by_field_name("body") {
+        if node.kind() == kind
+            && let Some(body) = node.child_by_field_name("body") {
                 for i in 0..body.named_child_count() {
                     let member = body.named_child(i).unwrap();
                     if member.kind() == "method_declaration" {
                         let attrs = collect_attributes(&member, source);
-                        if attrs.iter().any(|a| a.name == attr) {
-                            if let Some(mb) = member.child_by_field_name("body") {
+                        if attrs.iter().any(|a| a.name == attr)
+                            && let Some(mb) = member.child_by_field_name("body") {
                                 return Some(node_text(&mb, source));
                             }
-                        }
                     }
                 }
             }
-        }
         for i in 0..node.named_child_count() {
             let child = node.named_child(i).unwrap();
             if let Some(r) = walk(&child, kind, source, attr) {

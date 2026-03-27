@@ -232,13 +232,11 @@ fn find_method_in_class<'a>(
 ) -> Option<tree_sitter::Node<'a>> {
     for i in 0..class_body.named_child_count() {
         let member = class_body.named_child(i).unwrap();
-        if member.kind() == "method_definition" {
-            if let Some(name_node) = member.child_by_field_name("name") {
-                if node_text(&name_node, source) == method_name {
+        if member.kind() == "method_definition"
+            && let Some(name_node) = member.child_by_field_name("name")
+                && node_text(&name_node, source) == method_name {
                     return member.child_by_field_name("body");
                 }
-            }
-        }
     }
     None
 }
@@ -256,18 +254,18 @@ fn trace_node_recursive(
             let text = node_text(node, source);
 
             // Check for this.method() or this.service.method() calls
-            if let Some(func) = node.child_by_field_name("function") {
-                if func.kind() == "member_expression" {
-                    if let Some(obj) = func.child_by_field_name("object") {
+            if let Some(func) = node.child_by_field_name("function")
+                && func.kind() == "member_expression"
+                    && let Some(obj) = func.child_by_field_name("object") {
                         let obj_text = node_text(&obj, source);
 
                         // this.method() → try to resolve as internal class method
-                        if obj_text == "this" {
-                            if let Some(prop) = func.child_by_field_name("property") {
+                        if obj_text == "this"
+                            && let Some(prop) = func.child_by_field_name("property") {
                                 let method_name = node_text(&prop, source);
-                                if let Some(cb) = class_body {
-                                    if depth < MAX_DEPTH {
-                                        if let Some(target_body) =
+                                if let Some(cb) = class_body
+                                    && depth < MAX_DEPTH
+                                        && let Some(target_body) =
                                             find_method_in_class(cb, &method_name, source)
                                         {
                                             trace_node_recursive(
@@ -279,17 +277,14 @@ fn trace_node_recursive(
                                             );
                                             return;
                                         }
-                                    }
-                                }
                             }
-                        }
 
                         // this.service.method() → service call
-                        if obj.kind() == "member_expression" {
-                            if let Some(inner_obj) = obj.child_by_field_name("object") {
-                                if node_text(&inner_obj, source) == "this" {
-                                    if let Some(svc) = obj.child_by_field_name("property") {
-                                        if let Some(method) = func.child_by_field_name("property")
+                        if obj.kind() == "member_expression"
+                            && let Some(inner_obj) = obj.child_by_field_name("object")
+                                && node_text(&inner_obj, source) == "this"
+                                    && let Some(svc) = obj.child_by_field_name("property")
+                                        && let Some(method) = func.child_by_field_name("property")
                                         {
                                             let svc_name = node_text(&svc, source);
                                             let method_name = node_text(&method, source);
@@ -308,13 +303,7 @@ fn trace_node_recursive(
                                                 return;
                                             }
                                         }
-                                    }
-                                }
-                            }
-                        }
                     }
-                }
-            }
 
             // Classify the call by text patterns
             if let Some(step) = classify_method_call(&text) {
