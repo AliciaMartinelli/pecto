@@ -121,6 +121,20 @@ enum Commands {
         path: PathBuf,
     },
 
+    /// Show the request flow for an endpoint as Mermaid sequence diagram
+    Flow {
+        /// Endpoint to trace (e.g., "POST /api/orders")
+        endpoint: String,
+
+        /// Path to the project directory
+        #[arg(default_value = ".")]
+        path: PathBuf,
+
+        /// Output format: mermaid (default) or json
+        #[arg(short, long, default_value = "mermaid")]
+        format: String,
+    },
+
     /// Start an interactive web dashboard
     Serve {
         /// Path to the project directory
@@ -171,6 +185,11 @@ fn main() -> Result<()> {
         Commands::Graph { path, format } => cmd_graph(&path, &format, &cli.language),
         Commands::Report { path, output } => cmd_report(&path, &output, &cli.language),
         Commands::Impact { name, path } => cmd_impact(&name, &path, &cli.language),
+        Commands::Flow {
+            endpoint,
+            path,
+            format,
+        } => cmd_flow(&endpoint, &path, &format, &cli.language),
         Commands::Serve { path, port } => cmd_serve(&path, port, &cli.language),
         Commands::Verify { spec, path } => cmd_verify(&spec, &path, &cli.language),
         Commands::Diff { base, head, path } => cmd_diff(&base, &head, &path, &cli.language),
@@ -459,6 +478,48 @@ fn cmd_verify(spec_path: &Path, path: &Path, language: &Language) -> Result<()> 
     }
 
     std::process::exit(1);
+}
+
+fn cmd_flow(endpoint: &str, path: &Path, format: &str, language: &Language) -> Result<()> {
+    let spec = analyze(path, language)?;
+
+    // Find matching flow
+    let matching: Vec<_> = spec
+        .flows
+        .iter()
+        .filter(|f| f.trigger.to_lowercase().contains(&endpoint.to_lowercase()))
+        .collect();
+
+    if matching.is_empty() {
+        eprintln!(
+            "{} No flow found matching '{}'. Available endpoints:",
+            "✗".bold().red(),
+            endpoint
+        );
+        for flow in &spec.flows {
+            eprintln!("  - {}", flow.trigger);
+        }
+        return Ok(());
+    }
+
+    for flow in matching {
+        match format {
+            "json" => {
+                let json =
+                    serde_json::to_string_pretty(&flow).context("JSON serialization failed")?;
+                println!("{json}");
+            }
+            _ => {
+                // Mermaid (default)
+                let mermaid = pecto_core::mermaid::flow_to_mermaid(flow);
+                println!("```mermaid");
+                println!("{mermaid}");
+                println!("```");
+            }
+        }
+    }
+
+    Ok(())
 }
 
 fn cmd_serve(path: &Path, port: u16, language: &Language) -> Result<()> {

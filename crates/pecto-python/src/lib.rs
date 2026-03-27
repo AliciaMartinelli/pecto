@@ -1,5 +1,6 @@
 pub mod context;
 pub mod extractors;
+pub mod flow;
 pub mod parser;
 
 use context::{AnalysisContext, ParsedFile};
@@ -85,6 +86,8 @@ pub fn analyze_project(path: &Path) -> Result<ProjectSpec, PythonAnalysisError> 
             spec.capabilities.push(capability);
         }
     }
+
+    flow::extract_flows(&mut spec, &ctx);
 
     Ok(spec)
 }

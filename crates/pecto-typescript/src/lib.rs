@@ -1,6 +1,7 @@
 pub mod context;
 pub mod dependencies;
 pub mod extractors;
+pub mod flow;
 pub mod parser;
 
 use context::{AnalysisContext, ParsedFile};
@@ -88,8 +89,9 @@ pub fn analyze_project(path: &Path) -> Result<ProjectSpec, TypeScriptAnalysisErr
         }
     }
 
-    // Post-processing: resolve dependencies
+    // Post-processing
     dependencies::resolve_dependencies(&mut spec, &ctx);
+    flow::extract_flows(&mut spec, &ctx);
 
     Ok(spec)
 }
