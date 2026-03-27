@@ -28,7 +28,9 @@ body {{ font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', san
 .header h1 {{ font-size: 18px; font-family: monospace; font-weight: bold; background: linear-gradient(90deg, #C9C9EB, #E185C8, #DF0F51, #FFA161); -webkit-background-clip: text; background-clip: text; color: transparent; }}
 .header .stats {{ color: #64748b; font-size: 13px; }}
 .header .live {{ color: #34d399; font-size: 11px; margin-left: auto; }}
-.container {{ display: grid; grid-template-columns: 1fr 360px; height: calc(100vh - 53px); }}
+.container {{ display: grid; grid-template-columns: 1fr 4px var(--sidebar-width, 360px); height: calc(100vh - 53px); }}
+.resize-handle {{ background: #1e293b; cursor: col-resize; transition: background 0.15s; }}
+.resize-handle:hover, .resize-handle.active {{ background: #334155; }}
 #graph {{ background: #0f172a; cursor: grab; position: relative; overflow: hidden; }}
 #graph:active {{ cursor: grabbing; }}
 #graph svg {{ position: absolute; top: 0; left: 0; width: 100%; height: 100%; }}
@@ -142,6 +144,7 @@ svg text {{ font-family: 'Inter', -apple-system, sans-serif; pointer-events: non
     <div id="domain-filter" style="position:absolute;top:8px;left:8px;z-index:10;display:flex;flex-wrap:wrap;gap:4px;align-items:center"></div>
     <div class="tooltip" id="tooltip" style="display:none"></div>
   </div>
+  <div class="resize-handle" id="resize-handle"></div>
   <div class="sidebar">
     <input class="search" id="search" placeholder="Search capabilities..." />
     <div id="sidebar-content"></div>
@@ -149,6 +152,33 @@ svg text {{ font-family: 'Inter', -apple-system, sans-serif; pointer-events: non
 </div>
 <script>
 const spec = {spec_json};
+
+// Resizable sidebar
+(function() {{
+  var handle = document.getElementById('resize-handle');
+  var container = document.querySelector('.container');
+  var startX, startW;
+  handle.addEventListener('mousedown', function(e) {{
+    startX = e.clientX;
+    startW = parseInt(getComputedStyle(container).getPropertyValue('--sidebar-width') || '360');
+    handle.classList.add('active');
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    function onMove(e) {{
+      var w = Math.min(Math.max(startW - (e.clientX - startX), 250), 700);
+      container.style.setProperty('--sidebar-width', w + 'px');
+    }}
+    function onUp() {{
+      handle.classList.remove('active');
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    }}
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }});
+}})();
 
 // Color + type mapping
 function getCapType(cap) {{
