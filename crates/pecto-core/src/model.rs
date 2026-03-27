@@ -13,6 +13,8 @@ pub struct ProjectSpec {
     pub dependencies: Vec<DependencyEdge>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub domains: Vec<Domain>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub flows: Vec<RequestFlow>,
 }
 
 /// A capability groups related behaviors (e.g., "user-authentication", "order-management").
@@ -200,6 +202,42 @@ pub struct Domain {
     pub external_dependencies: Vec<String>,
 }
 
+/// A traced request flow for an endpoint — the complete call chain.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RequestFlow {
+    pub trigger: String,
+    pub entry_point: String,
+    pub steps: Vec<FlowStep>,
+}
+
+/// A single step in a request flow.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FlowStep {
+    pub actor: String,
+    pub method: String,
+    pub kind: FlowStepKind,
+    pub description: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub condition: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub children: Vec<FlowStep>,
+}
+
+/// The type of step in a request flow.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FlowStepKind {
+    ServiceCall,
+    DbRead,
+    DbWrite,
+    EventPublish,
+    Validation,
+    SecurityGuard,
+    Condition,
+    Return,
+    ThrowException,
+}
+
 impl ProjectSpec {
     pub fn new(name: impl Into<String>) -> Self {
         Self {
@@ -209,6 +247,7 @@ impl ProjectSpec {
             capabilities: Vec::new(),
             dependencies: Vec::new(),
             domains: Vec::new(),
+            flows: Vec::new(),
         }
     }
 }
