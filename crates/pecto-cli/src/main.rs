@@ -197,62 +197,70 @@ fn main() -> Result<()> {
 }
 
 /// Detect project language from files in the directory.
+/// Uses a scoring system: project config files are strong signals,
+/// source file counts break ties.
 fn detect_language(path: &Path) -> Result<Language> {
-    // Check for project files
+    let mut java_score = 0i32;
+    let mut cs_score = 0i32;
+    let mut py_score = 0i32;
+    let mut ts_score = 0i32;
+
     for entry in walkdir::WalkDir::new(path)
-        .max_depth(3)
+        .max_depth(5)
         .into_iter()
         .filter_map(|e| e.ok())
     {
         let name = entry.file_name().to_string_lossy();
-        if name.ends_with(".csproj") || name.ends_with(".sln") {
-            return Ok(Language::Csharp);
-        }
-        if name == "pom.xml" || name == "build.gradle" || name == "build.gradle.kts" {
-            return Ok(Language::Java);
-        }
-        if name == "pyproject.toml"
-            || name == "setup.py"
-            || name == "requirements.txt"
-            || name == "manage.py"
-        {
-            return Ok(Language::Python);
-        }
-        if name == "package.json" || name == "tsconfig.json" {
-            return Ok(Language::Typescript);
-        }
-    }
 
-    // Fallback: count file extensions
-    let mut java_count = 0usize;
-    let mut cs_count = 0usize;
-    let mut py_count = 0usize;
-    for entry in walkdir::WalkDir::new(path)
-        .into_iter()
-        .filter_map(|e| e.ok())
-    {
+        // Strong signals from project config files (+100)
+        if name == "pom.xml" || name == "build.gradle" || name == "build.gradle.kts" {
+            java_score += 100;
+        }
+        if name.ends_with(".csproj") || name.ends_with(".sln") {
+            cs_score += 100;
+        }
+        if name == "manage.py" || name == "setup.py" {
+            py_score += 100;
+        }
+        // Weaker config signals (+20) — these can appear in mono-repos alongside other langs
+        if name == "pyproject.toml" || name == "requirements.txt" {
+            py_score += 20;
+        }
+        if name == "tsconfig.json" {
+            ts_score += 20;
+        }
+        if name == "package.json" {
+            ts_score += 10;
+        }
+
+        // Count source files (+1 each)
         if let Some(ext) = entry.path().extension() {
-            if ext == "java" {
-                java_count += 1;
-            } else if ext == "cs" {
-                cs_count += 1;
-            } else if ext == "py" {
-                py_count += 1;
-            } else if ext == "ts" || ext == "tsx" || ext == "js" || ext == "jsx" {
-                // Count as TypeScript (handled by same analyzer)
-                py_count += 0; // placeholder to use the variable
+            match ext.to_str().unwrap_or("") {
+                "java" => java_score += 1,
+                "cs" => cs_score += 1,
+                "py" => py_score += 1,
+                "ts" | "tsx" => ts_score += 1,
+                "js" | "jsx" => ts_score += 1,
+                _ => {}
             }
         }
     }
 
-    if py_count > java_count && py_count > cs_count && py_count > 0 {
-        Ok(Language::Python)
-    } else if cs_count > java_count && cs_count > 0 {
-        Ok(Language::Csharp)
-    } else if java_count > 0 {
+    let max = java_score.max(cs_score).max(py_score).max(ts_score);
+    if max == 0 {
+        anyhow::bail!(
+            "Could not detect project language. Use --language java or --language csharp"
+        );
+    }
+
+    if max == java_score {
         Ok(Language::Java)
+    } else if max == cs_score {
+        Ok(Language::Csharp)
+    } else if max == py_score {
+        Ok(Language::Python)
     } else {
-        anyhow::bail!("Could not detect project language. Use --language java or --language csharp")
+        Ok(Language::Typescript)
     }
 }
 
