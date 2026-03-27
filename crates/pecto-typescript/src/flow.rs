@@ -143,48 +143,39 @@ fn find_endpoint_method_body<'a>(
                             .chain(method_decorators.iter())
                             .collect();
 
-                        // Check if any decorator matches the HTTP method
-                        let path_suffix = endpoint
-                            .path
-                            .rsplit('/')
-                            .next()
-                            .unwrap_or("");
-
                         for dec_text in &all_decorators {
                             let has_method = dec_text.contains(&format!("@{}(", method_lower))
                                 || dec_text.contains(&format!("@{}", method_lower));
 
-                            if has_method {
-                                // Convert {param} to :param for matching Express-style decorators
-                                let colon_suffix = if path_suffix.starts_with('{') && path_suffix.ends_with('}') {
-                                    format!(":{}", &path_suffix[1..path_suffix.len()-1])
-                                } else {
-                                    String::new()
-                                };
+                            if !has_method {
+                                continue;
+                            }
 
-                                // @Get() matches only endpoints without path params
-                                // @Get(':id') matches endpoints with {id}
-                                let dec_has_path_arg = !dec_text.contains("()")
-                                    && !dec_text.ends_with(&format!("@{}", method_lower));
-                                let endpoint_has_params = !path_suffix.is_empty()
-                                    && (path_suffix.contains('{') || path_suffix.contains(':'));
+                            // Bare decorator: @Get() or @Get with no args
+                            let dec_is_bare = dec_text.contains("()")
+                                || dec_text.trim().ends_with(&format!("@{}", method_lower));
 
-                                let path_ok = if endpoint_has_params {
-                                    // Endpoint like /cats/{id} must match decorator with path arg
-                                    dec_text.contains(path_suffix)
-                                        || (!colon_suffix.is_empty() && dec_text.contains(&colon_suffix))
-                                } else if dec_has_path_arg {
-                                    // Decorator has path arg but endpoint doesn't — skip
-                                    false
-                                } else {
-                                    // Both have no path args, or simple path suffix match
-                                    path_suffix.is_empty()
-                                        || dec_text.contains(path_suffix)
-                                };
+                            // Does endpoint have path params like {id}?
+                            let has_path_params = endpoint.path.contains('{');
 
-                                if path_ok {
-                                    return member.child_by_field_name("body");
-                                }
+                            let path_ok = if has_path_params {
+                                // Endpoint like /cats/{id} → decorator must have matching param
+                                // Find the {param} segment and check for both {param} and :param
+                                endpoint.path.rsplit('/').any(|seg| {
+                                    if seg.starts_with('{') && seg.ends_with('}') {
+                                        let colon = format!(":{}", &seg[1..seg.len()-1]);
+                                        dec_text.contains(seg) || dec_text.contains(&colon)
+                                    } else {
+                                        false
+                                    }
+                                })
+                            } else {
+                                // Endpoint like /cats → decorator should be bare @Get()
+                                dec_is_bare
+                            };
+
+                            if path_ok {
+                                return member.child_by_field_name("body");
                             }
                         }
 
