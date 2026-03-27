@@ -529,7 +529,11 @@ function showDetail(name) {{
 
     // Flow diagrams for endpoints
     const endpointFlows = (spec.flows || []).filter(f => {{
-      return cap.endpoints.some(ep => f.trigger.includes(ep.path));
+      return f.entry_point.startsWith(cap.source + '#') && cap.endpoints.some(ep => {{
+        var parts = f.trigger.split(' ');
+        var triggerPath = parts.slice(1).join(' ');
+        return triggerPath === ep.path;
+      }});
     }});
 
     if (endpointFlows.length > 0) {{

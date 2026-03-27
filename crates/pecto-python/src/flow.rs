@@ -1,4 +1,5 @@
 use crate::context::AnalysisContext;
+use crate::extractors::common::*;
 use pecto_core::model::*;
 
 /// Extract request flows for Python endpoints.
@@ -30,7 +31,10 @@ pub fn extract_flows(spec: &mut ProjectSpec, ctx: &AnalysisContext) {
                 });
             }
 
-            trace_source_text(&file.source, &mut steps);
+            let method_source = find_endpoint_function_text(
+                &file.tree.root_node(), file.source.as_bytes(), endpoint,
+            ).unwrap_or_else(|| file.source.clone());
+            trace_source_text(&method_source, &mut steps);
 
             if let Some(b) = endpoint.behaviors.first() {
                 steps.push(FlowStep {
@@ -54,6 +58,45 @@ pub fn extract_flows(spec: &mut ProjectSpec, ctx: &AnalysisContext) {
     }
 
     spec.flows = flows;
+}
+
+/// Find the source text of the specific function handling a Python endpoint.
+fn find_endpoint_function_text(
+    root: &tree_sitter::Node,
+    source: &[u8],
+    endpoint: &Endpoint,
+) -> Option<String> {
+    let method_lower = format!("{:?}", endpoint.method).to_lowercase();
+
+    // Walk decorated_definition nodes
+    for i in 0..root.named_child_count() {
+        let node = root.named_child(i).unwrap();
+        if node.kind() == "decorated_definition" {
+            let decorators = collect_decorators(&node, source);
+            for dec in &decorators {
+                // Match decorator method: @router.get, @app.post, etc.
+                let dec_method = dec.name.to_lowercase();
+                if dec_method == method_lower
+                    || dec.full_name.to_lowercase().ends_with(&format!(".{}", method_lower))
+                {
+                    // Check path match if decorator has args
+                    if let Some(path_arg) = dec.args.first() {
+                        let clean_path = clean_string_literal(path_arg);
+                        if !endpoint.path.ends_with(&clean_path) && !clean_path.is_empty() {
+                            continue;
+                        }
+                    }
+                    // Found matching decorator — extract function body text
+                    if let Some(func) = node.child_by_field_name("definition") {
+                        if let Some(body) = func.child_by_field_name("body") {
+                            return Some(node_text(&body, source));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    None
 }
 
 fn trace_source_text(source: &str, steps: &mut Vec<FlowStep>) {
