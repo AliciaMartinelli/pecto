@@ -153,6 +153,9 @@ function getCapSize(cap) {{
   return Math.min(20, Math.max(8, 6 + count * 1.5));
 }}
 
+// Newline char (avoids escape-sequence issues in embedded JS)
+const NL = String.fromCharCode(10);
+
 // Sanitize text for Mermaid diagram labels (remove syntax-breaking chars)
 function mermaidSafe(text) {{
   return text.replace(/[";#<>{{}}]/g, '').replace(/:/g, ' ').substring(0, 60);
@@ -169,10 +172,10 @@ function flowToMermaid(flow) {{
     }});
   }}
   collectActors(flow.steps);
-  actors.forEach(a => lines.push(`    participant ${{a}}`));
+  actors.forEach(a => lines.push('    participant ' + a));
 
   let lastActor = flow.steps.length > 0 && flow.steps[0].actor ? flow.steps[0].actor.replace(/[^a-zA-Z0-9_]/g, '_') : 'Server';
-  lines.push(`    Client->>${{lastActor}}: ${{mermaidSafe(flow.trigger)}}`);
+  lines.push('    Client->>' + lastActor + ': ' + mermaidSafe(flow.trigger));
 
   function renderSteps(steps) {{
     steps.forEach(step => {{
@@ -180,75 +183,78 @@ function flowToMermaid(flow) {{
       const desc = mermaidSafe(step.description);
       switch(step.kind) {{
         case 'service_call':
-          lines.push(`    ${{lastActor}}->>${{actor}}: ${{desc}}`);
-          if (step.children?.length) renderSteps(step.children);
+          lines.push('    ' + lastActor + '->>' + actor + ': ' + desc);
+          if (step.children && step.children.length) renderSteps(step.children);
           lastActor = actor;
           break;
         case 'db_write':
-          lines.push(`    ${{lastActor}}->>${{actor}}: DB write ${{desc}}`);
+          lines.push('    ' + lastActor + '->>' + actor + ': DB write ' + desc);
           break;
         case 'db_read':
-          lines.push(`    ${{lastActor}}->>${{actor}}: DB read ${{desc}}`);
-          lines.push(`    ${{actor}}-->>${{lastActor}}: result`);
+          lines.push('    ' + lastActor + '->>' + actor + ': DB read ' + desc);
+          lines.push('    ' + actor + '-->>' + lastActor + ': result');
           break;
         case 'event_publish':
-          lines.push(`    ${{lastActor}}->>EventBus: Event ${{desc}}`);
+          lines.push('    ' + lastActor + '->>EventBus: Event ' + desc);
           break;
         case 'validation':
-          lines.push(`    Note over ${{lastActor}}: Validate ${{desc}}`);
+          lines.push('    Note over ' + lastActor + ': Validate ' + desc);
           break;
         case 'security_guard':
-          lines.push(`    Note over ${{lastActor}}: Auth ${{desc}}`);
+          lines.push('    Note over ' + lastActor + ': Auth ' + desc);
           break;
         case 'condition':
-          const cond = step.condition || step.description;
-          const safeCond = mermaidSafe(cond);
+          var cond = step.condition || step.description;
+          var safeCond = mermaidSafe(cond);
           if (cond === 'else') {{
-            lines.push(`    else ${{safeCond}}`);
+            lines.push('    else ' + safeCond);
           }} else {{
-            lines.push(`    alt ${{safeCond}}`);
+            lines.push('    alt ' + safeCond);
           }}
-          if (step.children?.length) renderSteps(step.children);
+          if (step.children && step.children.length) renderSteps(step.children);
           if (cond !== 'else') lines.push('    end');
           break;
         case 'throw_exception':
-          lines.push(`    ${{lastActor}}->>Client: Error ${{desc}}`);
+          lines.push('    ' + lastActor + '->>Client: Error ' + desc);
           break;
       }}
     }});
   }}
   renderSteps(flow.steps);
-  lines.push(`    ${{lastActor}}->>Client: Response`);
-  return lines.join('\n');
+  lines.push('    ' + lastActor + '->>Client: Response');
+  return lines.join(NL);
 }}
 
 // Store mermaid code for copy button
 let currentMermaidCode = '';
+let mermaidRenderCounter = 0;
 
 // Flow overlay
 async function showFlowOverlay(flowIdx) {{
   const flow = spec.flows[flowIdx];
   if (!flow) return;
   currentMermaidCode = flowToMermaid(flow);
+  console.log('Mermaid code:', currentMermaidCode);
   const overlay = document.getElementById('flow-overlay');
-  overlay.innerHTML = `
-    <div class="flow-overlay-header">
-      <h2>${{flow.trigger}}</h2>
-      <div class="flow-overlay-actions">
-        <button class="copy-btn" onclick="navigator.clipboard.writeText(currentMermaidCode).then(() => this.textContent='Copied!').catch(() => {{}})">Copy Mermaid</button>
-        <button class="close-btn" onclick="document.getElementById('flow-overlay').style.display='none'">Close</button>
-      </div>
-    </div>
-    <div class="flow-overlay-body">
-      <div id="mermaid-target"></div>
-    </div>
-  `;
+  overlay.innerHTML = '<div class="flow-overlay-header">'
+    + '<h2>' + flow.trigger + '</h2>'
+    + '<div class="flow-overlay-actions">'
+    + '<button class="copy-btn" onclick="navigator.clipboard.writeText(currentMermaidCode).then(function(){{ event.target.textContent=\'Copied!\' }})">Copy Mermaid</button>'
+    + '<button class="close-btn" onclick="document.getElementById(\'flow-overlay\').style.display=\'none\'">Close</button>'
+    + '</div></div>'
+    + '<div class="flow-overlay-body"><div id="mermaid-target"></div></div>';
   overlay.style.display = 'flex';
+  mermaidRenderCounter++;
+  const renderId = 'mermaid-render-' + mermaidRenderCounter;
   try {{
-    const {{ svg }} = await mermaid.render('mermaid-svg-' + flowIdx, currentMermaidCode);
-    document.getElementById('mermaid-target').innerHTML = svg;
+    const result = await mermaid.render(renderId, currentMermaidCode);
+    document.getElementById('mermaid-target').innerHTML = result.svg;
   }} catch(e) {{
-    document.getElementById('mermaid-target').innerHTML = '<pre style="color:#94a3b8;font-size:12px;white-space:pre-wrap;">' + currentMermaidCode.replace(/</g,'&lt;') + '</pre>';
+    console.error('Mermaid render error:', e);
+    var pre = document.createElement('pre');
+    pre.style.cssText = 'color:#94a3b8;font-size:12px;white-space:pre-wrap;';
+    pre.textContent = currentMermaidCode;
+    document.getElementById('mermaid-target').appendChild(pre);
   }}
 }}
 
