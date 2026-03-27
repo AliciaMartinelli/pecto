@@ -19,6 +19,8 @@ pub fn render_html(spec: &ProjectSpec, is_live: bool) -> String {
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>pecto — {name}</title>
 <script src="https://d3js.org/d3.v7.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({{ startOnLoad: false, theme: 'dark' }});</script>
 <style>
 * {{ margin: 0; padding: 0; box-sizing: border-box; }}
 body {{ font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f172a; color: #e2e8f0; }}
@@ -83,6 +85,12 @@ svg text {{ font-family: 'Inter', -apple-system, sans-serif; pointer-events: non
 .filter-btn {{ padding: 3px 8px; background: #1e293b; border: 1px solid #334155; border-radius: 4px; color: #94a3b8; font-size: 10px; cursor: pointer; }}
 .filter-btn:hover {{ background: #334155; }}
 .filter-btn.active {{ background: #334155; color: #E185C8; border-color: #E185C8; }}
+.flow-container {{ margin-top: 12px; background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 12px; overflow-x: auto; }}
+.flow-container .mermaid {{ background: transparent; }}
+.flow-header {{ display: flex; justify-content: space-between; align-items: center; margin-top: 16px; margin-bottom: 8px; }}
+.flow-header h4 {{ font-size: 11px; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; }}
+.copy-btn {{ padding: 3px 8px; background: #1e293b; border: 1px solid #334155; border-radius: 4px; color: #94a3b8; font-size: 10px; cursor: pointer; }}
+.copy-btn:hover {{ background: #334155; }}
 </style>
 </head>
 <body>
@@ -134,6 +142,69 @@ function getCapSize(cap) {{
   if (!cap) return 8;
   const count = (cap.endpoints?.length || 0) + (cap.operations?.length || 0) + (cap.entities?.length || 0) + (cap.scheduled_tasks?.length || 0);
   return Math.min(20, Math.max(8, 6 + count * 1.5));
+}}
+
+// Convert a flow to Mermaid sequence diagram (JS version)
+function flowToMermaid(flow) {{
+  let out = 'sequenceDiagram\\n';
+  const actors = new Set(['Client']);
+  function collectActors(steps) {{
+    steps.forEach(s => {{
+      if (s.actor) actors.add(s.actor.replace(/[^a-zA-Z0-9_]/g, '_'));
+      if (s.children) collectActors(s.children);
+    }});
+  }}
+  collectActors(flow.steps);
+  actors.forEach(a => out += `    participant ${{a}}\\n`);
+  out += '\\n';
+
+  let lastActor = flow.steps.length > 0 && flow.steps[0].actor ? flow.steps[0].actor.replace(/[^a-zA-Z0-9_]/g, '_') : 'Server';
+  out += `    Client->>${{lastActor}}: ${{flow.trigger}}\\n`;
+
+  function renderSteps(steps) {{
+    steps.forEach(step => {{
+      const actor = step.actor ? step.actor.replace(/[^a-zA-Z0-9_]/g, '_') : lastActor;
+      switch(step.kind) {{
+        case 'service_call':
+          out += `    ${{lastActor}}->>${{actor}}: ${{step.description.substring(0,60)}}\\n`;
+          if (step.children?.length) renderSteps(step.children);
+          lastActor = actor;
+          break;
+        case 'db_write':
+          out += `    ${{lastActor}}->>${{actor}}: 💾 ${{step.description.substring(0,50)}}\\n`;
+          break;
+        case 'db_read':
+          out += `    ${{lastActor}}->>${{actor}}: 🔍 ${{step.description.substring(0,50)}}\\n`;
+          out += `    ${{actor}}-->>${{lastActor}}: result\\n`;
+          break;
+        case 'event_publish':
+          out += `    ${{lastActor}}->>EventBus: 📢 ${{step.description.substring(0,50)}}\\n`;
+          break;
+        case 'validation':
+          out += `    Note over ${{lastActor}}: ✅ ${{step.description.substring(0,50)}}\\n`;
+          break;
+        case 'security_guard':
+          out += `    Note over ${{lastActor}}: 🔒 ${{step.description.substring(0,50)}}\\n`;
+          break;
+        case 'condition':
+          const cond = step.condition || step.description;
+          if (cond === 'else') {{
+            out += `    else ${{cond}}\\n`;
+          }} else {{
+            out += `    alt ${{cond.substring(0,60)}}\\n`;
+          }}
+          if (step.children?.length) renderSteps(step.children);
+          if (cond !== 'else') out += `    end\\n`;
+          break;
+        case 'throw_exception':
+          out += `    ${{lastActor}}->>Client: ❌ ${{step.description.substring(0,50)}}\\n`;
+          break;
+      }}
+    }});
+  }}
+  renderSteps(flow.steps);
+  out += `    ${{lastActor}}->>Client: Response\\n`;
+  return out;
 }}
 
 // Sidebar rendering
@@ -247,6 +318,22 @@ function showDetail(name) {{
       }}
     }});
     html += '</div>';
+
+    // Flow diagrams for endpoints
+    const endpointFlows = (spec.flows || []).filter(f => {{
+      return cap.endpoints.some(ep => f.trigger.includes(ep.path));
+    }});
+
+    if (endpointFlows.length > 0) {{
+      html += `<div class="flow-header"><h4>Request Flows</h4></div>`;
+      endpointFlows.forEach((flow, idx) => {{
+        const mermaidCode = flowToMermaid(flow);
+        const flowId = 'flow-' + name.replace(/[^a-zA-Z0-9]/g, '') + '-' + idx;
+        html += `<div class="detail-item" style="font-weight:600;margin-bottom:4px">${{flow.trigger}}</div>`;
+        html += `<div class="flow-container"><div class="mermaid" id="${{flowId}}">${{mermaidCode}}</div></div>`;
+        html += `<button class="copy-btn" onclick="navigator.clipboard.writeText(\`${{mermaidCode.replace(/`/g, '\\`')}}\`).then(() => this.textContent='Copied!').catch(() => {{}})">Copy Mermaid</button>`;
+      }});
+    }}
   }}
 
   if (cap.entities?.length) {{
@@ -309,6 +396,11 @@ function showDetail(name) {{
   }}
 
   sidebarEl.innerHTML = html;
+
+  // Re-render Mermaid diagrams in the sidebar
+  setTimeout(() => {{
+    try {{ mermaid.run({{ nodes: document.querySelectorAll('.mermaid') }}); }} catch(e) {{}}
+  }}, 100);
 }}
 
 renderOverview('');
