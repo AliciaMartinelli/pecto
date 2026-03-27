@@ -198,7 +198,8 @@ fn main() -> Result<()> {
 
 /// Detect project language from files in the directory.
 /// Uses a scoring system: project config files are strong signals,
-/// source file counts break ties.
+/// source file counts break ties. Backend languages are prioritized
+/// over frontend when scores are close (pecto is a backend analysis tool).
 fn detect_language(path: &Path) -> Result<Language> {
     let mut java_score = 0i32;
     let mut cs_score = 0i32;
@@ -211,6 +212,7 @@ fn detect_language(path: &Path) -> Result<Language> {
         .filter_map(|e| e.ok())
     {
         let name = entry.file_name().to_string_lossy();
+        let depth = entry.depth();
 
         // Strong signals from project config files (+100)
         if name == "pom.xml" || name == "build.gradle" || name == "build.gradle.kts" {
@@ -222,15 +224,15 @@ fn detect_language(path: &Path) -> Result<Language> {
         if name == "manage.py" || name == "setup.py" {
             py_score += 100;
         }
-        // Weaker config signals (+20) — these can appear in mono-repos alongside other langs
+        // Config files at root level are strong signals (+50), deeper are weaker (+10)
         if name == "pyproject.toml" || name == "requirements.txt" {
-            py_score += 20;
+            py_score += if depth <= 1 { 50 } else { 10 };
         }
         if name == "tsconfig.json" {
-            ts_score += 20;
+            ts_score += if depth <= 1 { 50 } else { 10 };
         }
         if name == "package.json" {
-            ts_score += 10;
+            ts_score += if depth <= 1 { 20 } else { 5 };
         }
 
         // Count source files (+1 each)
@@ -253,7 +255,17 @@ fn detect_language(path: &Path) -> Result<Language> {
         );
     }
 
-    if max == java_score {
+    // Prioritize backend languages in mono-repos:
+    // If a backend language has a significant score (>30% of max), prefer it
+    // over TypeScript/JS which may just be a frontend companion.
+    let backend_threshold = max * 30 / 100;
+    if java_score > backend_threshold && java_score >= cs_score && java_score >= py_score {
+        Ok(Language::Java)
+    } else if cs_score > backend_threshold && cs_score >= java_score && cs_score >= py_score {
+        Ok(Language::Csharp)
+    } else if py_score > backend_threshold && py_score >= java_score && py_score >= cs_score {
+        Ok(Language::Python)
+    } else if max == java_score {
         Ok(Language::Java)
     } else if max == cs_score {
         Ok(Language::Csharp)
