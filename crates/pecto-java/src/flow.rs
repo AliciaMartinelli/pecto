@@ -1,5 +1,8 @@
 use crate::context::AnalysisContext;
 use crate::extractors::common::*;
+use crate::extractors::controller::{
+    extract_http_method_and_path, extract_jaxrs_http_method, extract_jaxrs_path,
+};
 use pecto_core::model::*;
 
 const MAX_DEPTH: usize = 4;
@@ -49,17 +52,24 @@ pub fn extract_flows(spec: &mut ProjectSpec, ctx: &AnalysisContext) {
                     actor: cap.name.clone(),
                     method: "authenticate".to_string(),
                     kind: FlowStepKind::SecurityGuard,
-                    description: format!(
-                        "Auth: {}",
-                        sec.roles.first().unwrap_or(&"required".to_string())
-                    ),
+                    description: if sec.roles.is_empty() {
+                        "Auth required".to_string()
+                    } else {
+                        format!("Auth: {}", sec.roles.join(", "))
+                    },
                     condition: None,
                     children: Vec::new(),
                 });
             }
 
-            // Trace method body for calls
-            let method_steps = trace_class_methods(&root, source, ctx, 0);
+            // Trace only the specific endpoint handler method (not all methods)
+            let method_steps =
+                if let Some(method_body) = find_endpoint_method_body(&root, source, endpoint) {
+                    trace_method_body(&method_body, source, ctx, 0)
+                } else {
+                    // Fallback: trace all methods in class
+                    trace_class_methods(&root, source, ctx, 0)
+                };
             steps.extend(method_steps);
 
             // Return step
@@ -94,6 +104,49 @@ pub fn extract_flows(spec: &mut ProjectSpec, ctx: &AnalysisContext) {
     }
 
     spec.flows = flows;
+}
+
+/// Find the specific method body that handles a given endpoint by matching annotations.
+fn find_endpoint_method_body<'a>(
+    root: &'a tree_sitter::Node<'a>,
+    source: &[u8],
+    endpoint: &Endpoint,
+) -> Option<tree_sitter::Node<'a>> {
+    for i in 0..root.named_child_count() {
+        let node = root.named_child(i).unwrap();
+        if node.kind() != "class_declaration" && node.kind() != "interface_declaration" {
+            continue;
+        }
+        let body = node.child_by_field_name("body")?;
+        for j in 0..body.named_child_count() {
+            let member = body.named_child(j).unwrap();
+            if member.kind() != "method_declaration" {
+                continue;
+            }
+            let annotations = collect_annotations(&member, source);
+
+            // Try Spring style: @GetMapping("/path"), @PostMapping, etc.
+            if let Some((method, path)) = extract_http_method_and_path(&annotations) {
+                if method == endpoint.method
+                    && !path.is_empty()
+                    && endpoint.path.ends_with(&path)
+                {
+                    return member.child_by_field_name("body");
+                }
+            }
+
+            // Try JAX-RS style: @GET + @Path("/path")
+            if let Some(method) = extract_jaxrs_http_method(&annotations) {
+                if method == endpoint.method {
+                    let path = extract_jaxrs_path(&annotations);
+                    if (!path.is_empty() && endpoint.path.ends_with(&path)) || path.is_empty() {
+                        return member.child_by_field_name("body");
+                    }
+                }
+            }
+        }
+    }
+    None
 }
 
 /// Trace method bodies in a class for service calls, DB ops, events, conditions.
@@ -138,14 +191,47 @@ fn trace_method_body(
     ctx: &AnalysisContext,
     depth: usize,
 ) -> Vec<FlowStep> {
+    // Find the enclosing class body for resolving internal method calls
+    let class_body = find_enclosing_class_body(body);
     let mut steps = Vec::new();
 
     if depth >= MAX_DEPTH {
         return steps;
     }
 
-    trace_node_recursive(body, source, ctx, depth, &mut steps);
+    trace_node_recursive(body, source, ctx, depth, &mut steps, class_body.as_ref());
     steps
+}
+
+/// Walk up the tree to find the class body that contains this method.
+fn find_enclosing_class_body<'a>(node: &'a tree_sitter::Node<'a>) -> Option<tree_sitter::Node<'a>> {
+    let mut current = node.parent();
+    while let Some(n) = current {
+        if n.kind() == "class_declaration" || n.kind() == "interface_declaration" {
+            return n.child_by_field_name("body");
+        }
+        current = n.parent();
+    }
+    None
+}
+
+/// Find a method declaration by name within a class body node.
+fn find_method_in_class<'a>(
+    class_body: &'a tree_sitter::Node<'a>,
+    method_name: &str,
+    source: &[u8],
+) -> Option<tree_sitter::Node<'a>> {
+    for i in 0..class_body.named_child_count() {
+        let member = class_body.named_child(i).unwrap();
+        if member.kind() == "method_declaration" {
+            if let Some(name_node) = member.child_by_field_name("name") {
+                if node_text(&name_node, source) == method_name {
+                    return member.child_by_field_name("body");
+                }
+            }
+        }
+    }
+    None
 }
 
 fn trace_node_recursive(
@@ -154,10 +240,29 @@ fn trace_node_recursive(
     ctx: &AnalysisContext,
     depth: usize,
     steps: &mut Vec<FlowStep>,
+    class_body: Option<&tree_sitter::Node>,
 ) {
     match node.kind() {
         "method_invocation" => {
             let text = node_text(node, source);
+
+            // Check for bare method call (no receiver/object) — internal method
+            let has_object = node.child_by_field_name("object").is_some();
+            if !has_object {
+                if let Some(name_node) = node.child_by_field_name("name") {
+                    let method_name = node_text(&name_node, source);
+                    // Try to resolve and trace the internal method
+                    if let Some(cb) = class_body {
+                        if depth < MAX_DEPTH {
+                            if let Some(target_body) = find_method_in_class(cb, &method_name, source) {
+                                trace_node_recursive(&target_body, source, ctx, depth + 1, steps, Some(cb));
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
+
             let step = classify_method_call(&text, ctx, depth);
             if let Some(s) = step {
                 steps.push(s);
@@ -190,12 +295,12 @@ fn trace_node_recursive(
 
             let mut if_children = Vec::new();
             if let Some(consequence) = node.child_by_field_name("consequence") {
-                trace_node_recursive(&consequence, source, ctx, depth + 1, &mut if_children);
+                trace_node_recursive(&consequence, source, ctx, depth + 1, &mut if_children, class_body);
             }
 
             let mut else_children = Vec::new();
             if let Some(alternative) = node.child_by_field_name("alternative") {
-                trace_node_recursive(&alternative, source, ctx, depth + 1, &mut else_children);
+                trace_node_recursive(&alternative, source, ctx, depth + 1, &mut else_children, class_body);
             }
 
             if !if_children.is_empty() || !else_children.is_empty() {
@@ -227,7 +332,7 @@ fn trace_node_recursive(
     // Recurse into children
     for i in 0..node.child_count() {
         let child = node.child(i).unwrap();
-        trace_node_recursive(&child, source, ctx, depth, steps);
+        trace_node_recursive(&child, source, ctx, depth, steps, class_body);
     }
 }
 
@@ -298,10 +403,21 @@ fn classify_method_call(text: &str, _ctx: &AnalysisContext, _depth: usize) -> Op
             let target = parts[0].trim();
             let method = parts[1].split('(').next().unwrap_or("").trim();
 
+            // Handle this.method() as internal call
+            if target == "this" && !method.is_empty() {
+                return Some(FlowStep {
+                    actor: "".to_string(),
+                    method: method.to_string(),
+                    kind: FlowStepKind::ServiceCall,
+                    description: format!("Call: {}.{}()", target, method),
+                    condition: None,
+                    children: Vec::new(),
+                });
+            }
+
             // Only include if it looks like a service call (lowercase field name)
             if !target.is_empty()
                 && target.chars().next().is_some_and(|c| c.is_lowercase())
-                && !target.starts_with("this")
                 && !matches!(
                     target,
                     "System"

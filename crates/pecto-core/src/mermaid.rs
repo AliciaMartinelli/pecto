@@ -194,7 +194,12 @@ fn sanitize_label(text: &str) -> String {
             _ => result.push(c),
         }
     }
-    result.chars().take(80).collect()
+    let collected: String = result.chars().take(100).collect();
+    if result.chars().count() > 100 {
+        format!("{}...", collected)
+    } else {
+        collected
+    }
 }
 
 /// Convert all flows in a ProjectSpec to Mermaid diagrams.

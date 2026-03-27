@@ -215,7 +215,7 @@ fn extract_endpoint_from_method(
     })
 }
 
-fn extract_http_method_and_path(annotations: &[AnnotationInfo]) -> Option<(HttpMethod, String)> {
+pub(crate) fn extract_http_method_and_path(annotations: &[AnnotationInfo]) -> Option<(HttpMethod, String)> {
     for ann in annotations {
         let (method, path) = match ann.name.as_str() {
             "GetMapping" => (HttpMethod::Get, extract_path_from_annotation(ann)),
@@ -245,7 +245,7 @@ fn extract_http_method_and_path(annotations: &[AnnotationInfo]) -> Option<(HttpM
     None
 }
 
-fn extract_path_from_annotation(ann: &AnnotationInfo) -> String {
+pub(crate) fn extract_path_from_annotation(ann: &AnnotationInfo) -> String {
     if let Some(val) = &ann.value {
         return val.clone();
     }
@@ -847,7 +847,7 @@ fn extract_exception_handler_behaviors(class_body: &Node, source: &[u8]) -> Vec<
 // ==================== JAX-RS Support ====================
 
 /// Extract path from JAX-RS @Path annotation.
-fn extract_jaxrs_path(annotations: &[AnnotationInfo]) -> String {
+pub(crate) fn extract_jaxrs_path(annotations: &[AnnotationInfo]) -> String {
     for ann in annotations {
         if ann.name == "Path"
             && let Some(val) = &ann.value
@@ -988,7 +988,7 @@ fn extract_jaxrs_endpoint(
     })
 }
 
-fn extract_jaxrs_http_method(annotations: &[AnnotationInfo]) -> Option<HttpMethod> {
+pub(crate) fn extract_jaxrs_http_method(annotations: &[AnnotationInfo]) -> Option<HttpMethod> {
     for ann in annotations {
         match ann.name.as_str() {
             "GET" => return Some(HttpMethod::Get),

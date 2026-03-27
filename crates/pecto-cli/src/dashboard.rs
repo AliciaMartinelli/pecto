@@ -91,11 +91,26 @@ svg text {{ font-family: 'Inter', -apple-system, sans-serif; pointer-events: non
 .flow-header h4 {{ font-size: 11px; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; }}
 .copy-btn {{ padding: 3px 8px; background: #1e293b; border: 1px solid #334155; border-radius: 4px; color: #94a3b8; font-size: 10px; cursor: pointer; }}
 .copy-btn:hover {{ background: #334155; }}
-.flow-overlay {{ position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(15,23,42,0.95); z-index: 200; display: flex; flex-direction: column; }}
+.flow-overlay {{ position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(15,23,42,0.97); z-index: 200; display: flex; flex-direction: column; }}
 .flow-overlay-header {{ padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #1e293b; }}
 .flow-overlay-header h2 {{ font-size: 16px; color: #e2e8f0; font-weight: 600; }}
-.flow-overlay-body {{ flex: 1; overflow: auto; display: flex; justify-content: center; align-items: flex-start; padding: 24px; }}
-.flow-overlay-body .mermaid {{ max-width: 100%; }}
+.flow-overlay-body {{ flex: 1; min-height: 0; position: relative; overflow: hidden; }}
+.flow-info-panel {{ position: absolute; left: 0; top: 0; bottom: 0; width: 320px; border-right: 1px solid #1e293b; padding: 20px; overflow-y: auto; background: inherit; z-index: 1; }}
+.flow-info-section {{ margin-bottom: 16px; }}
+.flow-info-section h4 {{ font-size: 10px; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }}
+.flow-info-entry {{ font-size: 12px; color: #e2e8f0; font-family: monospace; margin-bottom: 2px; word-break: break-word; }}
+.flow-info-field {{ font-size: 11px; color: #94a3b8; padding-left: 10px; margin-bottom: 1px; font-family: monospace; }}
+.flow-info-field .fi-name {{ color: #C9C9EB; }}
+.flow-info-field .fi-type {{ color: #64748b; }}
+.flow-info-badge {{ display: inline-block; padding: 2px 6px; border-radius: 3px; font-size: 10px; font-weight: 600; margin-right: 4px; margin-bottom: 4px; }}
+.flow-info-badge.auth {{ background: #1e293b; color: #FBBF24; border: 1px solid #FBBF24; }}
+.flow-info-badge.role {{ background: #1e293b; color: #FFA161; border: 1px solid #FFA161; }}
+.flow-info-response {{ font-size: 11px; color: #94a3b8; display: flex; justify-content: space-between; padding: 3px 0; border-bottom: 1px solid rgba(30,41,59,0.3); }}
+.flow-info-status-2xx {{ color: #34d399; }}
+.flow-info-status-4xx {{ color: #FBBF24; }}
+.flow-info-status-5xx {{ color: #DF0F51; }}
+.flow-info-constraint {{ font-size: 10px; color: #E185C8; padding-left: 10px; margin-bottom: 2px; }}
+.flow-diagram-area {{ position: absolute; left: 320px; top: 0; right: 0; bottom: 0; overflow: auto; padding: 24px; }}
 .flow-overlay-actions {{ display: flex; gap: 8px; }}
 .close-btn {{ padding: 6px 14px; background: #334155; border: 1px solid #475569; border-radius: 6px; color: #e2e8f0; font-size: 12px; cursor: pointer; }}
 .close-btn:hover {{ background: #475569; }}
@@ -158,7 +173,8 @@ const NL = String.fromCharCode(10);
 
 // Sanitize text for Mermaid diagram labels (remove syntax-breaking chars)
 function mermaidSafe(text) {{
-  return text.replace(/[";#<>{{}}]/g, '').replace(/:/g, ' ').substring(0, 60);
+  var clean = text.replace(/[";#<>{{}}]/g, '').replace(/:/g, ' ');
+  return clean.length > 100 ? clean.substring(0, 97) + '...' : clean;
 }}
 
 // Convert a flow to Mermaid sequence diagram (JS version)
@@ -188,20 +204,20 @@ function flowToMermaid(flow) {{
           lastActor = actor;
           break;
         case 'db_write':
-          lines.push('    ' + lastActor + '->>' + actor + ': DB write ' + desc);
+          lines.push('    ' + lastActor + '->>' + actor + ': ' + desc);
           break;
         case 'db_read':
-          lines.push('    ' + lastActor + '->>' + actor + ': DB read ' + desc);
+          lines.push('    ' + lastActor + '->>' + actor + ': ' + desc);
           lines.push('    ' + actor + '-->>' + lastActor + ': result');
           break;
         case 'event_publish':
-          lines.push('    ' + lastActor + '->>EventBus: Event ' + desc);
+          lines.push('    ' + lastActor + '->>EventBus: ' + desc);
           break;
         case 'validation':
-          lines.push('    Note over ' + lastActor + ': Validate ' + desc);
+          lines.push('    Note over ' + lastActor + ': ' + desc);
           break;
         case 'security_guard':
-          lines.push('    Note over ' + lastActor + ': Auth ' + desc);
+          lines.push('    Note over ' + lastActor + ': ' + desc);
           break;
         case 'condition':
           var cond = step.condition || step.description;
@@ -225,6 +241,112 @@ function flowToMermaid(flow) {{
   return lines.join(NL);
 }}
 
+// Find the endpoint matching a flow trigger (e.g. "Post /api/users")
+function findEndpointForFlow(flow) {{
+  var parts = flow.trigger.split(' ');
+  var triggerMethod = parts[0].toLowerCase();
+  var triggerPath = parts.slice(1).join(' ').toLowerCase();
+  // Exact method+path match
+  for (var i = 0; i < spec.capabilities.length; i++) {{
+    var eps = spec.capabilities[i].endpoints || [];
+    for (var j = 0; j < eps.length; j++) {{
+      if (eps[j].path.toLowerCase() === triggerPath
+          && eps[j].method.toLowerCase() === triggerMethod) return eps[j];
+    }}
+  }}
+  // Fallback: path-only match
+  for (var i = 0; i < spec.capabilities.length; i++) {{
+    var eps = spec.capabilities[i].endpoints || [];
+    for (var j = 0; j < eps.length; j++) {{
+      if (eps[j].path.toLowerCase() === triggerPath) return eps[j];
+    }}
+  }}
+  return null;
+}}
+
+// Build HTML for the info panel
+function buildFlowInfoPanel(flow, ep) {{
+  var h = '';
+  // Entry point (shorten: extract filename#name from full path)
+  var epDisplay = flow.entry_point || '';
+  var hashIdx = epDisplay.lastIndexOf('#');
+  if (hashIdx > 0) {{
+    var filePart = epDisplay.substring(0, hashIdx);
+    var slashIdx = filePart.lastIndexOf('/');
+    if (slashIdx >= 0) filePart = filePart.substring(slashIdx + 1);
+    epDisplay = filePart + epDisplay.substring(hashIdx);
+  }}
+  h += '<div class="flow-info-section"><h4>Entry Point</h4>';
+  h += '<div class="flow-info-entry">' + epDisplay + '</div></div>';
+
+  // Security
+  if (ep && ep.security) {{
+    var sec = ep.security;
+    h += '<div class="flow-info-section"><h4>Security</h4>';
+    if (sec.authentication && sec.authentication !== 'required') h += '<span class="flow-info-badge auth">' + sec.authentication + '</span>';
+    if (sec.roles && sec.roles.length) {{
+      sec.roles.forEach(function(r) {{ h += '<span class="flow-info-badge role">' + r + '</span>'; }});
+    }}
+    if (sec.rate_limit) h += '<div class="flow-info-field">Rate limit: ' + sec.rate_limit + '</div>';
+    h += '</div>';
+  }}
+
+  if (ep && ep.input) {{
+    var inp = ep.input;
+    // Path params
+    if (inp.path_params && inp.path_params.length) {{
+      h += '<div class="flow-info-section"><h4>Path Params</h4>';
+      inp.path_params.forEach(function(p) {{
+        h += '<div class="flow-info-field"><span class="fi-name">' + p.name + '</span>: <span class="fi-type">' + (p.param_type || '') + '</span></div>';
+      }});
+      h += '</div>';
+    }}
+    // Query params
+    if (inp.query_params && inp.query_params.length) {{
+      h += '<div class="flow-info-section"><h4>Query Params</h4>';
+      inp.query_params.forEach(function(p) {{
+        h += '<div class="flow-info-field"><span class="fi-name">' + p.name + '</span>: <span class="fi-type">' + (p.param_type || '') + '</span>'
+          + (p.required ? '' : ' <span style="color:#475569">(opt)</span>') + '</div>';
+      }});
+      h += '</div>';
+    }}
+    // Request body
+    if (inp.body) {{
+      h += '<div class="flow-info-section"><h4>Request Body</h4>';
+      h += '<div class="flow-info-entry">' + inp.body.name + '</div>';
+      if (inp.body.fields) {{
+        Object.keys(inp.body.fields).forEach(function(k) {{
+          h += '<div class="flow-info-field"><span class="fi-name">' + k + '</span>: <span class="fi-type">' + inp.body.fields[k] + '</span></div>';
+        }});
+      }}
+      h += '</div>';
+    }}
+  }}
+
+  // Validation
+  if (ep && ep.validation && ep.validation.length) {{
+    h += '<div class="flow-info-section"><h4>Validation</h4>';
+    ep.validation.forEach(function(v) {{
+      h += '<div class="flow-info-constraint">' + v.field + ': ' + (v.constraints ? v.constraints.join(', ') : '') + '</div>';
+    }});
+    h += '</div>';
+  }}
+
+  // Responses / Behaviors
+  if (ep && ep.behaviors && ep.behaviors.length) {{
+    h += '<div class="flow-info-section"><h4>Responses</h4>';
+    ep.behaviors.forEach(function(b) {{
+      var st = b.returns ? b.returns.status : 0;
+      var cls = st < 300 ? 'flow-info-status-2xx' : (st < 500 ? 'flow-info-status-4xx' : 'flow-info-status-5xx');
+      h += '<div class="flow-info-response"><span>' + b.name + '</span><span class="' + cls + '">' + st + '</span></div>';
+      if (b.returns && b.returns.body) h += '<div class="flow-info-field" style="font-size:10px">&rarr; ' + b.returns.body.name + '</div>';
+    }});
+    h += '</div>';
+  }}
+
+  return h;
+}}
+
 // Store mermaid code for copy button
 let currentMermaidCode = '';
 let mermaidRenderCounter = 0;
@@ -235,6 +357,8 @@ async function showFlowOverlay(flowIdx) {{
   if (!flow) return;
   currentMermaidCode = flowToMermaid(flow);
   console.log('Mermaid code:', currentMermaidCode);
+  var endpoint = findEndpointForFlow(flow);
+  var infoHtml = buildFlowInfoPanel(flow, endpoint);
   const overlay = document.getElementById('flow-overlay');
   overlay.innerHTML = '<div class="flow-overlay-header">'
     + '<h2>' + flow.trigger + '</h2>'
@@ -242,7 +366,10 @@ async function showFlowOverlay(flowIdx) {{
     + '<button class="copy-btn" onclick="navigator.clipboard.writeText(currentMermaidCode).then(function(){{ event.target.textContent=\'Copied!\' }})">Copy Mermaid</button>'
     + '<button class="close-btn" onclick="document.getElementById(\'flow-overlay\').style.display=\'none\'">Close</button>'
     + '</div></div>'
-    + '<div class="flow-overlay-body"><div id="mermaid-target"></div></div>';
+    + '<div class="flow-overlay-body">'
+    + '<div class="flow-info-panel">' + infoHtml + '</div>'
+    + '<div class="flow-diagram-area"><div id="mermaid-target"></div></div>'
+    + '</div>';
   overlay.style.display = 'flex';
   mermaidRenderCounter++;
   const renderId = 'mermaid-render-' + mermaidRenderCounter;
