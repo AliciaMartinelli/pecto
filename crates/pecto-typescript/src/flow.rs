@@ -155,10 +155,32 @@ fn find_endpoint_method_body<'a>(
                                 || dec_text.contains(&format!("@{}", method_lower));
 
                             if has_method {
-                                // Path match: either no path arg, or path suffix matches
-                                let path_ok = path_suffix.is_empty()
-                                    || dec_text.contains("()")
-                                    || dec_text.contains(path_suffix);
+                                // Convert {param} to :param for matching Express-style decorators
+                                let colon_suffix = if path_suffix.starts_with('{') && path_suffix.ends_with('}') {
+                                    format!(":{}", &path_suffix[1..path_suffix.len()-1])
+                                } else {
+                                    String::new()
+                                };
+
+                                // @Get() matches only endpoints without path params
+                                // @Get(':id') matches endpoints with {id}
+                                let dec_has_path_arg = !dec_text.contains("()")
+                                    && !dec_text.ends_with(&format!("@{}", method_lower));
+                                let endpoint_has_params = !path_suffix.is_empty()
+                                    && (path_suffix.contains('{') || path_suffix.contains(':'));
+
+                                let path_ok = if endpoint_has_params {
+                                    // Endpoint like /cats/{id} must match decorator with path arg
+                                    dec_text.contains(path_suffix)
+                                        || (!colon_suffix.is_empty() && dec_text.contains(&colon_suffix))
+                                } else if dec_has_path_arg {
+                                    // Decorator has path arg but endpoint doesn't — skip
+                                    false
+                                } else {
+                                    // Both have no path args, or simple path suffix match
+                                    path_suffix.is_empty()
+                                        || dec_text.contains(path_suffix)
+                                };
 
                                 if path_ok {
                                     return member.child_by_field_name("body");
