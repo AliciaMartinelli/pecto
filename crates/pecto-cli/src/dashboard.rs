@@ -91,6 +91,14 @@ svg text {{ font-family: 'Inter', -apple-system, sans-serif; pointer-events: non
 .flow-header h4 {{ font-size: 11px; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; }}
 .copy-btn {{ padding: 3px 8px; background: #1e293b; border: 1px solid #334155; border-radius: 4px; color: #94a3b8; font-size: 10px; cursor: pointer; }}
 .copy-btn:hover {{ background: #334155; }}
+.flow-overlay {{ position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(15,23,42,0.95); z-index: 200; display: flex; flex-direction: column; }}
+.flow-overlay-header {{ padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #1e293b; }}
+.flow-overlay-header h2 {{ font-size: 16px; color: #e2e8f0; font-weight: 600; }}
+.flow-overlay-body {{ flex: 1; overflow: auto; display: flex; justify-content: center; align-items: flex-start; padding: 24px; }}
+.flow-overlay-body .mermaid {{ max-width: 100%; }}
+.flow-overlay-actions {{ display: flex; gap: 8px; }}
+.close-btn {{ padding: 6px 14px; background: #334155; border: 1px solid #475569; border-radius: 6px; color: #e2e8f0; font-size: 12px; cursor: pointer; }}
+.close-btn:hover {{ background: #475569; }}
 </style>
 </head>
 <body>
@@ -115,6 +123,7 @@ svg text {{ font-family: 'Inter', -apple-system, sans-serif; pointer-events: non
       <div class="legend-item"><div class="legend-line dashed"></div> Queries</div>
       <div class="legend-item"><div class="legend-line dotted"></div> Listens</div>
     </div>
+    <div id="flow-overlay" class="flow-overlay" style="display:none"></div>
     <div id="domain-filter" style="position:absolute;top:8px;left:8px;z-index:10;display:flex;flex-wrap:wrap;gap:4px;align-items:center"></div>
     <div class="tooltip" id="tooltip" style="display:none"></div>
   </div>
@@ -205,6 +214,30 @@ function flowToMermaid(flow) {{
   renderSteps(flow.steps);
   out += `    ${{lastActor}}->>Client: Response\\n`;
   return out;
+}}
+
+// Flow overlay
+function showFlowOverlay(flowIdx) {{
+  const flow = spec.flows[flowIdx];
+  if (!flow) return;
+  const mermaidCode = flowToMermaid(flow);
+  const overlay = document.getElementById('flow-overlay');
+  overlay.style.display = 'flex';
+  overlay.innerHTML = `
+    <div class="flow-overlay-header">
+      <h2>${{flow.trigger}}</h2>
+      <div class="flow-overlay-actions">
+        <button class="copy-btn" onclick="navigator.clipboard.writeText(\`${{mermaidCode.replace(/`/g, '\\`')}}\`).then(() => this.textContent='Copied!').catch(() => {{}})">Copy Mermaid</button>
+        <button class="close-btn" onclick="document.getElementById('flow-overlay').style.display='none'">Close ✕</button>
+      </div>
+    </div>
+    <div class="flow-overlay-body">
+      <div class="mermaid">${{mermaidCode}}</div>
+    </div>
+  `;
+  setTimeout(() => {{
+    try {{ mermaid.run({{ nodes: overlay.querySelectorAll('.mermaid') }}); }} catch(e) {{}}
+  }}, 50);
 }}
 
 // Sidebar rendering
@@ -327,11 +360,11 @@ function showDetail(name) {{
     if (endpointFlows.length > 0) {{
       html += `<div class="flow-header"><h4>Request Flows</h4></div>`;
       endpointFlows.forEach((flow, idx) => {{
-        const mermaidCode = flowToMermaid(flow);
-        const flowId = 'flow-' + name.replace(/[^a-zA-Z0-9]/g, '') + '-' + idx;
-        html += `<div class="detail-item" style="font-weight:600;margin-bottom:4px">${{flow.trigger}}</div>`;
-        html += `<div class="flow-container"><div class="mermaid" id="${{flowId}}">${{mermaidCode}}</div></div>`;
-        html += `<button class="copy-btn" onclick="navigator.clipboard.writeText(\`${{mermaidCode.replace(/`/g, '\\`')}}\`).then(() => this.textContent='Copied!').catch(() => {{}})">Copy Mermaid</button>`;
+        const flowIdx = spec.flows.indexOf(flow);
+        html += `<div class="detail-item" style="display:flex;justify-content:space-between;align-items:center">`;
+        html += `<span>${{flow.trigger}}</span>`;
+        html += `<button class="copy-btn" onclick="showFlowOverlay(${{flowIdx}})">View Flow ▶</button>`;
+        html += `</div>`;
       }});
     }}
   }}
@@ -397,10 +430,6 @@ function showDetail(name) {{
 
   sidebarEl.innerHTML = html;
 
-  // Re-render Mermaid diagrams in the sidebar
-  setTimeout(() => {{
-    try {{ mermaid.run({{ nodes: document.querySelectorAll('.mermaid') }}); }} catch(e) {{}}
-  }}, 100);
 }}
 
 renderOverview('');
