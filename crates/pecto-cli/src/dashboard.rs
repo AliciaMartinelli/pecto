@@ -19,7 +19,7 @@ pub fn render_html(spec: &ProjectSpec, is_live: bool) -> String {
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>pecto — {name}</title>
 <script src="https://d3js.org/d3.v7.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.3/dist/mermaid.min.js"></script>
 <script>mermaid.initialize({{ startOnLoad: false, theme: 'dark' }});</script>
 <style>
 * {{ margin: 0; padding: 0; box-sizing: border-box; }}
