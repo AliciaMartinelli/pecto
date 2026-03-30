@@ -51,6 +51,12 @@ jobs:
       - name: Integration Tests (C# - eShopOnWeb)
         run: cargo test --test integration_eshop -- --ignored
 
+      - name: Integration Tests (Python - FastAPI)
+        run: cargo test --test integration_fastapi -p pecto-python -- --ignored
+
+      - name: Integration Tests (TypeScript - NestJS)
+        run: cargo test --test integration_nestjs -p pecto-typescript -- --ignored
+
   audit:
     name: Security Audit
     runs-on: ubuntu-latest

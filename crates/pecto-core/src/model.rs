@@ -153,6 +153,9 @@ pub struct Entity {
     pub name: String,
     pub table: String,
     pub fields: Vec<EntityField>,
+    /// Parent class names (for same-file field inheritance resolution).
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub bases: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

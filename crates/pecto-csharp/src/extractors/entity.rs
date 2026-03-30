@@ -23,10 +23,12 @@ pub fn extract(file: &ParsedFile, ctx: &AnalysisContext) -> Option<Capability> {
         if attrs.iter().any(|a| a.name == "Table") {
             let table_name = extract_table_name(&attrs, &class_name);
             let fields = extract_properties(node, src);
+            let bases = extract_base_classes(node, src);
             let entity = Entity {
                 name: class_name.clone(),
                 table: table_name,
                 fields,
+                bases,
             };
             let cap_name = format!("{}-entity", to_kebab_case(&class_name));
             let mut cap = Capability::new(cap_name, file.path.clone());
@@ -51,6 +53,7 @@ pub fn extract(file: &ParsedFile, ctx: &AnalysisContext) -> Option<Capability> {
                             name: entity_type.clone(),
                             table: entity_type.clone(),
                             fields: Vec::new(),
+                            bases: Vec::new(),
                         });
                     }
                 }
@@ -72,10 +75,12 @@ pub fn extract(file: &ParsedFile, ctx: &AnalysisContext) -> Option<Capability> {
                 && has_key_property(&body, src)
             {
                 let fields = extract_properties(node, src);
+                let bases = extract_base_classes(node, src);
                 let entity = Entity {
                     name: class_name.clone(),
                     table: class_name.clone(),
                     fields,
+                    bases,
                 };
                 let cap_name = format!("{}-entity", to_kebab_case(&class_name));
                 let mut cap = Capability::new(cap_name, file.path.clone());
@@ -97,6 +102,25 @@ fn extract_table_name(attrs: &[AttributeInfo], class_name: &str) -> String {
         }
     }
     class_name.to_string()
+}
+
+/// Extract base class names from a class declaration's base_list.
+fn extract_base_classes(node: &Node, source: &[u8]) -> Vec<String> {
+    let mut bases = Vec::new();
+    for i in 0..node.named_child_count() {
+        let child = node.named_child(i).unwrap();
+        if child.kind() == "base_list" {
+            for j in 0..child.named_child_count() {
+                let base = child.named_child(j).unwrap();
+                let name = node_text(&base, source);
+                let name = name.trim().to_string();
+                if !name.is_empty() {
+                    bases.push(name);
+                }
+            }
+        }
+    }
+    bases
 }
 
 fn is_db_context(node: &Node, source: &[u8]) -> bool {
@@ -177,10 +201,12 @@ fn resolve_entity(type_name: &str, ctx: &AnalysisContext) -> Option<Entity> {
         let table_name = extract_table_name(&attrs, type_name);
         let fields = extract_properties(node, src);
 
+        let bases = extract_base_classes(node, src);
         entity = Some(Entity {
             name: type_name.to_string(),
             table: table_name,
             fields,
+            bases,
         });
     });
 

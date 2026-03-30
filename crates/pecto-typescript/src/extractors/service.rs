@@ -48,7 +48,7 @@ pub fn extract(file: &ParsedFile) -> Option<Capability> {
 
     // Extract public methods (simplified: non-private, non-constructor methods)
     let mut in_class = false;
-    let mut depth = 0;
+    let mut depth: usize = 0;
     for line in full_text.lines() {
         let trimmed = line.trim();
 
@@ -57,22 +57,26 @@ pub fn extract(file: &ParsedFile) -> Option<Capability> {
         }
 
         if in_class {
+            // Check depth BEFORE counting this line's braces —
+            // a method declaration at class body level starts at depth 1
+            let depth_before = depth;
             depth += trimmed.matches('{').count();
-            depth -= trimmed.matches('}').count();
+            depth = depth.saturating_sub(trimmed.matches('}').count());
 
-            if depth == 0 && in_class {
+            if depth == 0 && depth_before > 0 {
                 break;
             }
 
-            // Match method declarations (at class body level, depth=2)
-            if depth == 2
+            // Match method declarations: line starts at class body level (depth 1)
+            // and contains a method signature pattern
+            if depth_before == 1
                 && !trimmed.starts_with("//")
                 && !trimmed.starts_with("private ")
                 && !trimmed.starts_with("constructor")
                 && !trimmed.starts_with("@")
                 && !trimmed.starts_with("readonly ")
                 && !trimmed.is_empty()
-                && (trimmed.contains("(") && trimmed.contains(")") || trimmed.ends_with("{"))
+                && trimmed.contains("(")
             {
                 let method_name = trimmed
                     .replace("async ", "")
@@ -87,6 +91,12 @@ pub fn extract(file: &ParsedFile) -> Option<Capability> {
                     && !method_name.starts_with("get ")
                     && !method_name.starts_with("set ")
                     && method_name != "constructor"
+                    && !method_name.contains('=')
+                    && !method_name.contains('.')
+                    && !method_name.starts_with("return ")
+                    && !method_name.starts_with("const ")
+                    && !method_name.starts_with("let ")
+                    && !method_name.starts_with("if ")
                 {
                     operations.push(Operation {
                         name: method_name.clone(),

@@ -32,10 +32,13 @@ pub fn analyze_project(path: &Path) -> Result<ProjectSpec, TypeScriptAnalysisErr
                 && !p.contains("/.next/")
                 && !p.contains("/__tests__/")
                 && !p.contains("/__mocks__/")
+                && !p.contains("/test/")
+                && !p.contains("/tests/")
                 && !p.ends_with(".spec.ts")
                 && !p.ends_with(".test.ts")
                 && !p.ends_with(".spec.js")
                 && !p.ends_with(".test.js")
+                && !p.ends_with(".e2e-spec.ts")
                 && !p.ends_with(".d.ts")
         })
         .collect();

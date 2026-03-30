@@ -79,11 +79,20 @@ svg text {{ font-family: 'Inter', -apple-system, sans-serif; pointer-events: non
 .link.queries {{ stroke: #475569; stroke-dasharray: 6,3; }}
 .link.listens {{ stroke: #475569; stroke-dasharray: 2,3; }}
 .link.validates {{ stroke: #475569; stroke-dasharray: 8,4,2,4; }}
-.node circle {{ cursor: pointer; transition: opacity 0.2s; }}
+.node circle {{ cursor: pointer; transition: opacity 0.2s, filter 0.3s; }}
 .node text {{ transition: opacity 0.2s; }}
 .node.dimmed circle {{ opacity: 0.15; }}
 .node.dimmed text {{ opacity: 0.15; }}
 .link.dimmed {{ opacity: 0.08; }}
+.node.flow-dimmed circle {{ opacity: 0.12; }}
+.node.flow-dimmed text {{ opacity: 0.12; }}
+.link.flow-dimmed {{ opacity: 0.05; }}
+.node.traced circle {{ filter: drop-shadow(0 0 6px currentColor) drop-shadow(0 0 12px currentColor); opacity: 1 !important; }}
+.node.traced text {{ opacity: 1 !important; font-weight: 600; }}
+.link.traced {{ stroke-width: 2.5; opacity: 1 !important; }}
+.trace-btn {{ padding: 3px 8px; background: #1e293b; border: 1px solid #475569; border-radius: 4px; color: #34d399; font-size: 10px; cursor: pointer; transition: all 0.15s; }}
+.trace-btn:hover {{ background: #334155; }}
+.trace-btn.active {{ background: #34d399; color: #0f172a; border-color: #34d399; font-weight: 600; }}
 .filter-btn {{ padding: 3px 8px; background: #1e293b; border: 1px solid #334155; border-radius: 4px; color: #94a3b8; font-size: 10px; cursor: pointer; }}
 .filter-btn:hover {{ background: #334155; }}
 .filter-btn.active {{ background: #334155; color: #E185C8; border-color: #E185C8; }}
@@ -381,6 +390,128 @@ function buildFlowInfoPanel(flow, ep) {{
 let currentMermaidCode = '';
 let mermaidRenderCounter = 0;
 
+// ===================== Flow Trace Highlighting =====================
+let activeFlowTrace = null; // null or {{ flowIdx, capNames: Set }}
+
+// Recursively collect all actor names from a flow's steps
+function collectFlowActors(steps) {{
+  const actors = new Set();
+  (steps || []).forEach(s => {{
+    if (s.actor && s.actor.trim()) actors.add(s.actor.trim());
+    if (s.children) collectFlowActors(s.children).forEach(a => actors.add(a));
+  }});
+  return actors;
+}}
+
+// Convert camelCase/PascalCase to kebab-case for matching
+function toKebab(str) {{
+  return str.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase();
+}}
+
+// Map flow actors to capability names in the graph
+function mapActorsToCapabilities(actors, entryCapName) {{
+  const capNames = new Set();
+  const allCapNames = spec.capabilities.map(c => c.name);
+
+  // Always include the entry-point capability
+  if (entryCapName) capNames.add(entryCapName);
+
+  actors.forEach(actor => {{
+    // Strategy 1: exact match
+    if (allCapNames.includes(actor)) {{ capNames.add(actor); return; }}
+
+    // Strategy 2: kebab-case conversion (usersService → users-service)
+    const kebab = toKebab(actor);
+    if (allCapNames.includes(kebab)) {{ capNames.add(kebab); return; }}
+    const kebabSvc = kebab + '-service';
+    if (allCapNames.includes(kebabSvc)) {{ capNames.add(kebabSvc); return; }}
+
+    // Strategy 3: partial match — capability name contains the actor (or vice versa)
+    const lowerActor = actor.toLowerCase().replace(/[^a-z0-9]/g, '');
+    allCapNames.forEach(cn => {{
+      const lowerCn = cn.toLowerCase().replace(/[^a-z0-9]/g, '');
+      if (lowerCn.includes(lowerActor) || lowerActor.includes(lowerCn)) {{
+        capNames.add(cn);
+      }}
+    }});
+  }});
+
+  // Also include capabilities connected by dependencies to traced caps
+  const traced = new Set(capNames);
+  (spec.dependencies || []).forEach(d => {{
+    if (traced.has(d.from) && !traced.has(d.to)) capNames.add(d.to);
+  }});
+
+  return capNames;
+}}
+
+// Extract capability name from flow entry_point (e.g. "src/users/users.controller.ts#users" → "users")
+function entryPointToCapName(entryPoint) {{
+  if (!entryPoint) return null;
+  const hash = entryPoint.lastIndexOf('#');
+  if (hash >= 0) return entryPoint.substring(hash + 1);
+  return null;
+}}
+
+// Toggle flow trace on the graph — same button deactivates, different button switches
+function toggleFlowTrace(flowIdx) {{
+  if (activeFlowTrace && activeFlowTrace.flowIdx === flowIdx) {{
+    // Same button clicked → deactivate
+    clearFlowTrace();
+    return;
+  }}
+
+  const flow = spec.flows[flowIdx];
+  if (!flow) return;
+
+  const actors = collectFlowActors(flow.steps);
+  const entryCapName = entryPointToCapName(flow.entry_point);
+  const involved = mapActorsToCapabilities(actors, entryCapName);
+
+  activeFlowTrace = {{ flowIdx, capNames: involved }};
+
+  applyFlowTraceToGraph();
+  updateTraceButtons();
+}}
+
+function applyFlowTraceToGraph() {{
+  if (!activeFlowTrace) return;
+  const involved = activeFlowTrace.capNames;
+
+  const svgEl = d3.select('#svg');
+  svgEl.selectAll('.node')
+    .classed('flow-dimmed', d => !involved.has(d.id))
+    .classed('traced', d => involved.has(d.id));
+
+  svgEl.selectAll('.link')
+    .classed('flow-dimmed', l => {{
+      const sId = typeof l.source === 'object' ? l.source.id : l.source;
+      const tId = typeof l.target === 'object' ? l.target.id : l.target;
+      return !involved.has(sId) || !involved.has(tId);
+    }})
+    .classed('traced', l => {{
+      const sId = typeof l.source === 'object' ? l.source.id : l.source;
+      const tId = typeof l.target === 'object' ? l.target.id : l.target;
+      return involved.has(sId) && involved.has(tId);
+    }});
+}}
+
+function clearFlowTrace() {{
+  activeFlowTrace = null;
+  const svgEl = d3.select('#svg');
+  svgEl.selectAll('.node').classed('flow-dimmed', false).classed('traced', false);
+  svgEl.selectAll('.link').classed('flow-dimmed', false).classed('traced', false);
+  updateTraceButtons();
+}}
+
+// Update all trace buttons to reflect active state
+function updateTraceButtons() {{
+  document.querySelectorAll('.trace-btn').forEach(btn => {{
+    const idx = parseInt(btn.dataset.flowIdx);
+    btn.classList.toggle('active', activeFlowTrace !== null && activeFlowTrace.flowIdx === idx);
+  }});
+}}
+
 // Flow overlay
 async function showFlowOverlay(flowIdx) {{
   const flow = spec.flows[flowIdx];
@@ -542,7 +673,11 @@ function showDetail(name) {{
         const flowIdx = spec.flows.indexOf(flow);
         html += `<div class="detail-item" style="display:flex;justify-content:space-between;align-items:center">`;
         html += `<span>${{flow.trigger}}</span>`;
-        html += `<button class="copy-btn" onclick="showFlowOverlay(${{flowIdx}})">View Flow ▶</button>`;
+        const isActive = activeFlowTrace && activeFlowTrace.flowIdx === flowIdx;
+        html += `<span style="display:flex;gap:4px">`;
+        html += `<button class="trace-btn${{isActive ? ' active' : ''}}" data-flow-idx="${{flowIdx}}" onclick="toggleFlowTrace(${{flowIdx}})">Trace ◉</button>`;
+        html += `<button class="copy-btn" onclick="showFlowOverlay(${{flowIdx}})">Flow ▶</button>`;
+        html += `</span>`;
         html += `</div>`;
       }});
     }}
@@ -867,6 +1002,8 @@ function showDomainDetail(domainName) {{
     tooltip.style.display = 'none';
     node.classed('dimmed', false);
     link.classed('dimmed', false);
+    // Reapply flow trace if active (hover clears dimming, but trace should persist)
+    if (activeFlowTrace) applyFlowTraceToGraph();
   }})
   .on('click', (event, d) => {{
     if (d.type !== 'External') showDetail(d.id);
@@ -877,6 +1014,9 @@ function showDomainDetail(domainName) {{
         .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
     node.attr('transform', d => `translate(${{d.x}},${{d.y}})`);
   }});
+
+  // Reapply flow trace if active
+  if (activeFlowTrace) applyFlowTraceToGraph();
 }}
 
 // ===================== CLASSIC VIEW: Small Projects =====================
@@ -929,6 +1069,9 @@ function showClassicView() {{
         .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
     node.attr('transform', d => `translate(${{d.x}},${{d.y}})`);
   }});
+
+  // Reapply flow trace if active
+  if (activeFlowTrace) applyFlowTraceToGraph();
 }}
 
 // Start the appropriate view

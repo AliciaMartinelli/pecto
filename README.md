@@ -108,6 +108,43 @@ pecto diff <base-ref> [head-ref] [--path .]
 
 Shows behavior changes between two git refs. Useful for code review.
 
+### `pecto flow` — Request flow tracing
+
+```bash
+pecto flow "POST /api/users"            # Mermaid sequence diagram
+pecto flow "GET /users" --format json   # JSON output
+```
+
+Trace the request flow for an endpoint as a Mermaid sequence diagram.
+
+### `pecto check` — Architecture rules
+
+```bash
+pecto check                        # uses .pecto/rules.yaml or defaults
+pecto check --rules my-rules.yaml  # custom rules file
+```
+
+Validate architecture fitness rules against your codebase.
+
+Built-in rules: `no-circular-dependencies`, `controllers-no-direct-db-access`, `all-endpoints-need-authentication`, `no-entity-without-validation`, `max-service-dependencies`.
+
+Configure in `.pecto/rules.yaml`:
+```yaml
+rules:
+  no-circular-dependencies: true
+  controllers-no-direct-db-access: true
+  all-endpoints-need-authentication: true
+  max-service-dependencies: 5
+```
+
+### `pecto pr-diff` — PR behavior diff
+
+```bash
+pecto pr-diff main HEAD    # outputs markdown to stdout
+```
+
+Generate a GitHub-flavored Markdown diff between two git refs. Use with the `pecto-pr` GitHub Action to auto-post behavior diffs on pull requests.
+
 ### `pecto domains` — Business domain clusters
 
 ```bash
@@ -283,6 +320,23 @@ Use `pecto verify` in your CI pipeline to detect behavior drift:
 ```
 
 Exit code 1 means the spec has drifted from the code.
+
+### GitHub Action: `pecto-pr`
+
+Auto-post behavior diffs on pull requests:
+
+```yaml
+# .github/workflows/pecto-pr.yml
+on: pull_request
+jobs:
+  behavior-diff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pecto/pecto-pr@v1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+```
 
 ## Contributing
 

@@ -25,10 +25,16 @@ pub fn extract(file: &ParsedFile) -> Option<Capability> {
                 extract_fields(&body, source, &mut fields);
             }
 
+            let bases = node
+                .child_by_field_name("superclass")
+                .map(|sc| vec![node_text(&sc, source)])
+                .unwrap_or_default();
+
             let entity = Entity {
                 name: class_name.clone(),
                 table: table_name,
                 fields,
+                bases,
             };
 
             let capability_name = format!("{}-entity", to_kebab_case(&class_name));

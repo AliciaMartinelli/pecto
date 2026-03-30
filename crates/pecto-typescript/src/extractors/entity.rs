@@ -52,17 +52,34 @@ fn extract_typeorm_entities(source: &str, entities: &mut Vec<Entity>) {
     while let Some(entity_pos) = remaining.find("@Entity(") {
         remaining = &remaining[entity_pos..];
 
-        // Find class name
-        let class_name = remaining
+        // Find class name and base class
+        let (class_name, bases) = remaining
             .find("class ")
-            .and_then(|pos| {
+            .map(|pos| {
                 let after = &remaining[pos + 6..];
-                after
+                let line_end = after.find('{').unwrap_or(after.len());
+                let class_line = &after[..line_end];
+                let name = class_line
                     .split([' ', '{', '\n'])
                     .next()
-                    .map(|s| s.trim().to_string())
+                    .unwrap_or("Unknown")
+                    .trim()
+                    .to_string();
+                let bases = if let Some(ext_pos) = class_line.find("extends ") {
+                    let after_ext = &class_line[ext_pos + 8..];
+                    let base = after_ext
+                        .split([' ', '{', '\n', ','])
+                        .next()
+                        .unwrap_or("")
+                        .trim()
+                        .to_string();
+                    if base.is_empty() { Vec::new() } else { vec![base] }
+                } else {
+                    Vec::new()
+                };
+                (name, bases)
             })
-            .unwrap_or_else(|| "Unknown".to_string());
+            .unwrap_or_else(|| ("Unknown".to_string(), Vec::new()));
 
         // Find table name from @Entity('tablename') or default to class name
         let table_name = remaining
@@ -107,6 +124,7 @@ fn extract_typeorm_entities(source: &str, entities: &mut Vec<Entity>) {
             name: class_name,
             table: table_name,
             fields,
+            bases,
         });
 
         // Move past this entity
@@ -248,6 +266,7 @@ fn extract_mongoose_schemas(source: &str, entities: &mut Vec<Entity>) {
             name: name.clone(),
             table: name.to_lowercase(),
             fields: Vec::new(), // Mongoose schema fields are complex to parse from text
+            bases: Vec::new(),
         });
 
         remaining = &remaining[pos + 7..];

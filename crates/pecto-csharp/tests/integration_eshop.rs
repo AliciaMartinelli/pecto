@@ -49,7 +49,7 @@ fn test_eshop_on_web() {
         "Should find at least one capability"
     );
 
-    // Should find entities (either via [Table]/[Key] or DbContext)
+    // Should find EF Core entities (via DbContext DbSet<T>)
     let entity_caps: Vec<_> = spec
         .capabilities
         .iter()
@@ -57,13 +57,43 @@ fn test_eshop_on_web() {
         .collect();
     assert!(!entity_caps.is_empty(), "Should find EF Core entities");
 
-    // Should find services
+    let all_entities: Vec<String> = entity_caps
+        .iter()
+        .flat_map(|c| c.entities.iter().map(|e| e.name.clone()))
+        .collect();
+    assert!(
+        all_entities.len() >= 5,
+        "Should find at least 5 entities, found {}: {:?}",
+        all_entities.len(),
+        all_entities
+    );
+
+    // Should find endpoints (controllers)
+    let total_endpoints: usize = spec.capabilities.iter().map(|c| c.endpoints.len()).sum();
+    assert!(
+        total_endpoints >= 10,
+        "Should find at least 10 endpoints, found {}",
+        total_endpoints
+    );
+
+    // Should find services (at least 5)
     let service_caps: Vec<_> = spec
         .capabilities
         .iter()
-        .filter(|c| c.name.contains("service"))
+        .filter(|c| !c.operations.is_empty())
         .collect();
-    assert!(!service_caps.is_empty(), "Should find service classes");
+    assert!(
+        service_caps.len() >= 5,
+        "Should find at least 5 service capabilities, found {}",
+        service_caps.len()
+    );
+
+    // Should have dependencies resolved
+    assert!(
+        spec.dependencies.len() >= 10,
+        "Should have at least 10 dependencies, found {}",
+        spec.dependencies.len()
+    );
 
     // Should have domains clustered
     assert!(!spec.domains.is_empty(), "Should have domain clusters");

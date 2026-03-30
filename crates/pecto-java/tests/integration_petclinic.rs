@@ -50,64 +50,83 @@ fn test_spring_petclinic_rest() {
         "Should find at least one capability"
     );
 
-    // Should find JPA entities (Pet, Owner, Vet, Visit, etc.)
+    // Should find all 8 JPA entities
     let entity_caps: Vec<_> = spec
         .capabilities
         .iter()
         .filter(|c| !c.entities.is_empty())
         .collect();
     assert!(
-        entity_caps.len() >= 5,
-        "Should find at least 5 entity capabilities, found {}",
+        entity_caps.len() >= 7,
+        "Should find at least 7 entity capabilities, found {}",
         entity_caps.len()
     );
 
-    // Check specific entities exist
+    // Check all expected entities exist
     let entity_names: Vec<String> = entity_caps
         .iter()
         .flat_map(|c| c.entities.iter().map(|e| e.name.clone()))
         .collect();
-    assert!(
-        entity_names.iter().any(|n| n == "Owner"),
-        "Should find Owner entity"
-    );
-    assert!(
-        entity_names.iter().any(|n| n == "Pet"),
-        "Should find Pet entity"
-    );
-    assert!(
-        entity_names.iter().any(|n| n == "Vet"),
-        "Should find Vet entity"
-    );
+    for expected in &["Owner", "Pet", "Vet", "Visit", "Specialty", "PetType", "Role", "User"] {
+        assert!(
+            entity_names.iter().any(|n| n == expected),
+            "Should find {} entity, found: {:?}",
+            expected,
+            entity_names
+        );
+    }
 
-    // Should find controllers (even if they use interface-based mappings)
-    let controller_caps: Vec<_> = spec
-        .capabilities
+    // Most entities should have fields (some like Specialty inherit all fields from parent)
+    let entities_with_fields = entity_caps
         .iter()
-        .filter(|c| c.source.contains("Controller"))
-        .collect();
+        .flat_map(|c| c.entities.iter())
+        .filter(|e| !e.fields.is_empty())
+        .count();
     assert!(
-        !controller_caps.is_empty(),
-        "Should find controller classes"
+        entities_with_fields >= 5,
+        "At least 5 entities should have direct fields, found {}",
+        entities_with_fields
     );
 
-    // Should find repositories
+    // NOTE: PetClinic v4 uses OpenAPI-generated interfaces for endpoint annotations.
+    // Only RootRestController has direct @RequestMapping on methods.
+    // Other controllers implement generated API interfaces whose source is not in the tree.
+    let endpoint_count: usize = spec.capabilities.iter().map(|c| c.endpoints.len()).sum();
+    assert!(
+        endpoint_count >= 1,
+        "Should find at least 1 endpoint (RootRestController)"
+    );
+
+    // Should find repositories (at least 7: Owner, Pet, Vet, Visit, PetType, Specialty, User)
     let repo_caps: Vec<_> = spec
         .capabilities
         .iter()
         .filter(|c| c.name.contains("repository"))
         .collect();
-    assert!(!repo_caps.is_empty(), "Should find repository interfaces");
+    assert!(
+        repo_caps.len() >= 7,
+        "Should find at least 7 repository capabilities, found {}",
+        repo_caps.len()
+    );
 
-    // Should find services
+    // Should find services (ClinicService, UserService)
     let service_caps: Vec<_> = spec
         .capabilities
         .iter()
         .filter(|c| c.name.contains("service"))
         .collect();
-    assert!(!service_caps.is_empty(), "Should find service classes");
+    assert!(
+        service_caps.len() >= 2,
+        "Should find at least 2 service capabilities, found {}",
+        service_caps.len()
+    );
 
-    // Should have dependencies resolved
+    // Should have dependencies resolved (service → repository)
+    assert!(
+        spec.dependencies.len() >= 5,
+        "Should have at least 5 dependencies, found {}",
+        spec.dependencies.len()
+    );
     eprintln!("\n=== Dependencies ===");
     for dep in &spec.dependencies {
         eprintln!("  {} → {} ({:?})", dep.from, dep.to, dep.kind);

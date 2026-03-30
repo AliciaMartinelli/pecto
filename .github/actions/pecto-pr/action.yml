@@ -1,0 +1,90 @@
+name: 'pecto pr-diff'
+description: 'Post behavior diff as PR comment — shows endpoint, entity, and dependency changes'
+branding:
+  icon: 'git-pull-request'
+  color: 'purple'
+
+inputs:
+  path:
+    description: 'Path to the project directory'
+    required: false
+    default: '.'
+  language:
+    description: 'Language to analyze (auto, java, csharp, python, typescript)'
+    required: false
+    default: 'auto'
+  version:
+    description: 'pecto version to install'
+    required: false
+    default: 'latest'
+  github-token:
+    description: 'GitHub token for posting PR comments'
+    required: true
+    default: ${{ github.token }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      shell: bash
+
+    - name: Cache pecto binary
+      uses: actions/cache@v4
+      with:
+        path: ~/.cargo/bin/pecto
+        key: pecto-${{ inputs.version }}-${{ runner.os }}
+
+    - name: Install pecto
+      shell: bash
+      run: |
+        if ! command -v pecto &> /dev/null; then
+          cargo install pecto
+        fi
+
+    - name: Generate behavior diff
+      id: diff
+      shell: bash
+      run: |
+        # Fetch base branch for comparison
+        git fetch origin ${{ github.event.pull_request.base.ref }} --depth=1 2>/dev/null || true
+
+        DIFF_OUTPUT=$(pecto pr-diff \
+          origin/${{ github.event.pull_request.base.ref }} \
+          HEAD \
+          --path ${{ inputs.path }} \
+          --language ${{ inputs.language }} 2>/dev/null || echo "## 🔍 pecto — Behavior Diff
+
+⚠️ Could not generate behavior diff. Run \`pecto pr-diff\` locally for details.
+
+<!-- pecto -->")
+
+        # Write to file to handle multi-line output
+        echo "$DIFF_OUTPUT" > /tmp/pecto-pr-diff.md
+
+    - name: Post or update PR comment
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: |
+        PR_NUMBER=${{ github.event.pull_request.number }}
+        DIFF_BODY=$(cat /tmp/pecto-pr-diff.md)
+
+        # Find existing pecto comment by marker
+        EXISTING_COMMENT_ID=$(gh api \
+          "repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
+          --jq '.[] | select(.body | contains("<!-- pecto -->")) | .id' \
+          2>/dev/null | head -1)
+
+        if [ -n "$EXISTING_COMMENT_ID" ]; then
+          # Update existing comment
+          gh api \
+            --method PATCH \
+            "repos/${{ github.repository }}/issues/comments/${EXISTING_COMMENT_ID}" \
+            -f body="$DIFF_BODY"
+          echo "Updated existing pecto comment #${EXISTING_COMMENT_ID}"
+        else
+          # Create new comment
+          gh pr comment "$PR_NUMBER" --body "$DIFF_BODY"
+          echo "Created new pecto comment on PR #${PR_NUMBER}"
+        fi

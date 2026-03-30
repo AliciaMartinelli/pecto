@@ -159,6 +159,31 @@ enum Commands {
         #[arg(short, long, default_value = ".")]
         path: PathBuf,
     },
+
+    /// Check architecture fitness rules against the codebase
+    Check {
+        /// Path to the project directory
+        #[arg(default_value = ".")]
+        path: PathBuf,
+
+        /// Path to rules config file (default: .pecto/rules.yaml)
+        #[arg(short, long)]
+        rules: Option<PathBuf>,
+    },
+
+    /// Generate a GitHub-flavored Markdown behavior diff between two git refs
+    PrDiff {
+        /// Base git ref (e.g., main, origin/main)
+        base: String,
+
+        /// Head git ref (defaults to HEAD)
+        #[arg(default_value = "HEAD")]
+        head: String,
+
+        /// Path to the project directory
+        #[arg(short, long, default_value = ".")]
+        path: PathBuf,
+    },
 }
 
 fn main() -> Result<()> {
@@ -192,7 +217,9 @@ fn main() -> Result<()> {
         } => cmd_flow(&endpoint, &path, &format, &cli.language),
         Commands::Serve { path, port } => cmd_serve(&path, port, &cli.language),
         Commands::Verify { spec, path } => cmd_verify(&spec, &path, &cli.language),
+        Commands::Check { path, rules } => cmd_check(&path, rules.as_deref(), &cli.language),
         Commands::Diff { base, head, path } => cmd_diff(&base, &head, &path, &cli.language),
+        Commands::PrDiff { base, head, path } => cmd_pr_diff(&base, &head, &path, &cli.language),
     }
 }
 
@@ -302,7 +329,8 @@ fn analyze(path: &Path, language: &Language) -> Result<ProjectSpec> {
         Language::Auto => unreachable!(),
     };
 
-    // Post-processing: cluster capabilities into domains
+    // Post-processing: merge inherited entity fields, then cluster domains
+    pecto_core::inheritance::merge_inherited_fields(&mut spec);
     pecto_core::domains::cluster_domains(&mut spec);
 
     // Sort capabilities for stable output across platforms
@@ -428,6 +456,64 @@ fn cmd_show(name: &str, path: &Path, language: &Language) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn cmd_check(path: &Path, rules_path: Option<&Path>, language: &Language) -> Result<()> {
+    let spec = analyze(path, language)?;
+
+    // Load rules config
+    let config = if let Some(rp) = rules_path {
+        let content = std::fs::read_to_string(rp)
+            .with_context(|| format!("Cannot read rules file: {}", rp.display()))?;
+        serde_yaml::from_str::<pecto_core::rules::RulesConfig>(&content)
+            .context("Invalid rules config")?
+    } else {
+        // Try .pecto/rules.yaml in project dir, otherwise defaults
+        let default_path = path.join(".pecto/rules.yaml");
+        if default_path.exists() {
+            let content = std::fs::read_to_string(&default_path)?;
+            serde_yaml::from_str::<pecto_core::rules::RulesConfig>(&content)
+                .context("Invalid rules config in .pecto/rules.yaml")?
+        } else {
+            pecto_core::rules::RulesConfig::default()
+        }
+    };
+
+    let results = pecto_core::rules::check_rules(&spec, &config);
+
+    let mut passed = 0;
+    let mut failed = 0;
+
+    for result in &results {
+        if result.passed {
+            passed += 1;
+            eprintln!("{} {}", "✓".bold().green(), result.name);
+        } else {
+            failed += 1;
+            eprintln!("{} {}", "✗".bold().red(), result.name.bold());
+            for v in &result.violations {
+                eprintln!("    {}", v.dimmed());
+            }
+        }
+    }
+
+    eprintln!();
+    if failed == 0 {
+        eprintln!(
+            "{} {} rules passed",
+            "✓".bold().green(),
+            passed
+        );
+        Ok(())
+    } else {
+        eprintln!(
+            "{} {} passed, {} failed",
+            "✗".bold().red(),
+            passed,
+            failed.to_string().red().bold()
+        );
+        std::process::exit(1);
+    }
 }
 
 fn cmd_verify(spec_path: &Path, path: &Path, language: &Language) -> Result<()> {
@@ -768,6 +854,43 @@ fn cmd_diff(base: &str, head: &str, path: &PathBuf, language: &Language) -> Resu
             ChangeTag::Equal => {}
         }
     }
+
+    Ok(())
+}
+
+fn cmd_pr_diff(base: &str, head: &str, path: &PathBuf, language: &Language) -> Result<()> {
+    let abs_path = std::fs::canonicalize(path)
+        .with_context(|| format!("Cannot find directory: {}", path.display()))?;
+    let resolved_lang = match language {
+        Language::Auto => detect_language(&abs_path)?,
+        other => other.clone(),
+    };
+
+    eprintln!(
+        "{} Generating PR diff {} → {}...",
+        "pecto".bold().cyan(),
+        base,
+        head
+    );
+
+    let temp_dir = std::env::temp_dir().join("pecto-pr-diff");
+    let base_dir = temp_dir.join("base");
+    let head_dir = temp_dir.join("head");
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    std::fs::create_dir_all(&base_dir).context("Failed to create temp dir")?;
+    std::fs::create_dir_all(&head_dir).context("Failed to create temp dir")?;
+
+    export_git_ref(&abs_path, base, &base_dir)?;
+    export_git_ref(&abs_path, head, &head_dir)?;
+
+    let base_spec = analyze(&base_dir, &resolved_lang)?;
+    let head_spec = analyze(&head_dir, &resolved_lang)?;
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+
+    let markdown = pecto_core::pr_diff::generate_pr_diff(&base_spec, &head_spec);
+    print!("{}", markdown);
 
     Ok(())
 }

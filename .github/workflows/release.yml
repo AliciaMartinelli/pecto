@@ -87,5 +87,11 @@ jobs:
       - name: Publish pecto-csharp
         run: cargo publish -p pecto-csharp --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
         continue-on-error: true
+      - name: Publish pecto-python
+        run: cargo publish -p pecto-python --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        continue-on-error: true
+      - name: Publish pecto-typescript
+        run: cargo publish -p pecto-typescript --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        continue-on-error: true
       - name: Publish pecto (CLI)
         run: cargo publish -p pecto --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
