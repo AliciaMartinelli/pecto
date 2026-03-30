@@ -1,24 +1,26 @@
 # pecto
 
 [![CI](https://github.com/AliciaMartinelli/pecto/actions/workflows/ci.yml/badge.svg)](https://github.com/AliciaMartinelli/pecto/actions/workflows/ci.yml)
+[![crates.io](https://img.shields.io/crates/v/pecto.svg)](https://crates.io/crates/pecto)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 **Extract behavior specs from code through static analysis.**
 
 > Your code has behaviors. pecto makes them visible.
 
-pecto analyzes your Java and C# codebases and generates human-readable behavior specifications — without LLMs, fast, deterministic, and fully offline.
+**[pecto.dev](https://pecto.dev)** · [Docs](https://pecto.dev/docs) · [Install](#install)
+
+pecto is an open-source CLI that analyzes Java, C#, Python, and TypeScript codebases and generates human-readable behavior specifications — without LLMs, fast, deterministic, and fully offline.
 
 ```
-$ pecto init ./spring-petclinic-rest
+$ pecto init ./my-spring-app
 
-pecto Analyzing /home/dev/spring-petclinic-rest...
-✓ Analyzed 86 files → 18 capabilities
+pecto Analyzing ./my-spring-app...
+✓ Analyzed 86 files → 29 capabilities
 
+  23 endpoints
   8 entities
-  7 repositories (45 operations)
-  2 services (30 operations)
-  1 controller (1 endpoint)
+  109 operations
 ```
 
 ## Why
@@ -31,12 +33,10 @@ pecto Analyzing /home/dev/spring-petclinic-rest...
 ## Install
 
 ```bash
-# From source
 cargo install pecto
-
-# Or download binary from releases
-# https://github.com/pecto-dev/pecto/releases
 ```
+
+Or download pre-built binaries from [GitHub Releases](https://github.com/AliciaMartinelli/pecto/releases).
 
 ## Quick Start
 
@@ -47,6 +47,8 @@ pecto init ./my-app
 # Specify language explicitly
 pecto init ./my-app --language java
 pecto init ./my-app --language csharp
+pecto init ./my-app --language python
+pecto init ./my-app --language typescript
 
 # Output as JSON instead of YAML
 pecto init ./my-app --format json
@@ -342,7 +344,7 @@ jobs:
 
 ```bash
 # Clone and build
-git clone https://github.com/pecto-dev/pecto
+git clone https://github.com/AliciaMartinelli/pecto
 cd pecto
 cargo build
 
