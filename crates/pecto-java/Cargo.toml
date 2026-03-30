@@ -6,7 +6,7 @@ license.workspace = true
 description = "Java/Spring Boot behavior extractor"
 
 [dependencies]
-pecto-core = { path = "../pecto-core", version = "0.1.0" }
+pecto-core = { path = "../pecto-core", version = "0.1.1" }
 tree-sitter = { workspace = true }
 tree-sitter-java = { workspace = true }
 thiserror = { workspace = true }

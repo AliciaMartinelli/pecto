@@ -6,7 +6,7 @@ license.workspace = true
 description = "C#/.NET behavior extractor"
 
 [dependencies]
-pecto-core = { path = "../pecto-core", version = "0.1.0" }
+pecto-core = { path = "../pecto-core", version = "0.1.1" }
 tree-sitter = { workspace = true }
 tree-sitter-c-sharp = { workspace = true }
 thiserror = { workspace = true }

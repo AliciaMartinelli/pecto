@@ -10,11 +10,11 @@ name = "pecto"
 path = "src/main.rs"
 
 [dependencies]
-pecto-core = { path = "../pecto-core", version = "0.1.0" }
-pecto-java = { path = "../pecto-java", version = "0.1.0" }
-pecto-csharp = { path = "../pecto-csharp", version = "0.1.0" }
-pecto-python = { path = "../pecto-python", version = "0.1.0" }
-pecto-typescript = { path = "../pecto-typescript", version = "0.1.0" }
+pecto-core = { path = "../pecto-core", version = "0.1.1" }
+pecto-java = { path = "../pecto-java", version = "0.1.1" }
+pecto-csharp = { path = "../pecto-csharp", version = "0.1.1" }
+pecto-python = { path = "../pecto-python", version = "0.1.1" }
+pecto-typescript = { path = "../pecto-typescript", version = "0.1.1" }
 clap = { workspace = true }
 anyhow = { workspace = true }
 owo-colors = { workspace = true }
