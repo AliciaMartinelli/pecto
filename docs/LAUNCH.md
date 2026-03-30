@@ -24,26 +24,30 @@ pecto reads your source code and extracts:
 
 It outputs YAML/JSON specs that are both human-readable and machine-verifiable. Supports Java (Spring, JAX-RS), C# (ASP.NET Core, EF Core), Python (FastAPI, Flask, Django), and TypeScript (NestJS, Express, Next.js).
 
-Example: `pecto init ./spring-petclinic-rest` analyzes 86 Java files in ~0.5s and finds 18 capabilities (8 entities, 7 repositories, 2 services, 1 controller).
+Example: `pecto init ./my-spring-app` analyzes 86 Java files in ~0.5s and extracts 29 capabilities (8 entities, 7 repositories, 2 services, 109 operations).
 
 Built in Rust for speed. Uses tree-sitter for parsing. No API keys, no cloud, no LLMs — pure static analysis.
 
+Install: `cargo install pecto`
+
+Website: https://pecto.dev
 GitHub: https://github.com/AliciaMartinelli/pecto
 
 Interested in feedback on:
 1. Is behavior extraction useful for your workflow?
-2. What language/framework should we support next?
+2. What language/framework should we support next (Go, PHP, Kotlin)?
 3. Would you use `pecto verify` in CI to catch undocumented behavior changes?
-4. Would request flow tracing (`pecto flow`) or architecture fitness rules (`pecto check`) be useful for your team?
 
 ---
 
 ## Benchmark Data
 
-| Project | Language | Files | Capabilities | Endpoints | Entities | Services | Time |
-|---------|----------|-------|-------------|-----------|----------|----------|------|
-| spring-petclinic-rest | Java | 86 | 18 | 1 | 8 | 2 | ~0.5s |
-| eShopOnWeb | C# | 254 | 18 | 25 | 7 | 14 | ~1.6s |
+| Project | Language | Files | Capabilities | Time |
+|---------|----------|-------|-------------|------|
+| Spring PetClinic REST | Java | 86 | 29 (8 entities, 7 repos) | ~0.5s |
+| eShopOnWeb | C# | 254 | 18 (7 entities, 25 endpoints) | ~0.5s |
+| FastAPI Template | Python | 27 | 8 (23 endpoints, 20 entities) | ~0.4s |
+| NestJS TypeORM | TypeScript | 7 | 3 (4 endpoints, 1 entity) | ~0.4s |
 
 Hardware: Apple M-series, single run, cold cache.
 
@@ -86,4 +90,4 @@ Hardware: Apple M-series, single run, cold cache.
 | Architecture fitness rules | Yes (check) | No | No | No |
 | Offline / no cloud | Yes | Yes | No | No |
 | Multi-language (Java, C#, Python, TS) | Yes | Per-language | Yes | Yes |
-| Speed | <2s for 250 files | N/A | Minutes | Minutes |
+| Speed | <1s for 250 files | N/A | Minutes | Minutes |
