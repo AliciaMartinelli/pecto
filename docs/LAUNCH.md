@@ -28,7 +28,7 @@ Example: `pecto init ./spring-petclinic-rest` analyzes 86 Java files in ~0.5s an
 
 Built in Rust for speed. Uses tree-sitter for parsing. No API keys, no cloud, no LLMs — pure static analysis.
 
-GitHub: https://github.com/pecto-dev/pecto
+GitHub: https://github.com/AliciaMartinelli/pecto
 
 Interested in feedback on:
 1. Is behavior extraction useful for your workflow?
