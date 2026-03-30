@@ -128,20 +128,21 @@ fn find_endpoint_method_body<'a>(
             // Try Spring style: @GetMapping("/path"), @PostMapping, etc.
             if let Some((method, path)) = extract_http_method_and_path(&annotations)
                 && method == endpoint.method
-                    && !path.is_empty()
-                    && endpoint.path.ends_with(&path)
-                {
-                    return member.child_by_field_name("body");
-                }
+                && !path.is_empty()
+                && endpoint.path.ends_with(&path)
+            {
+                return member.child_by_field_name("body");
+            }
 
             // Try JAX-RS style: @GET + @Path("/path")
             if let Some(method) = extract_jaxrs_http_method(&annotations)
-                && method == endpoint.method {
-                    let path = extract_jaxrs_path(&annotations);
-                    if (!path.is_empty() && endpoint.path.ends_with(&path)) || path.is_empty() {
-                        return member.child_by_field_name("body");
-                    }
+                && method == endpoint.method
+            {
+                let path = extract_jaxrs_path(&annotations);
+                if (!path.is_empty() && endpoint.path.ends_with(&path)) || path.is_empty() {
+                    return member.child_by_field_name("body");
                 }
+            }
         }
     }
     None
@@ -223,9 +224,10 @@ fn find_method_in_class<'a>(
         let member = class_body.named_child(i).unwrap();
         if member.kind() == "method_declaration"
             && let Some(name_node) = member.child_by_field_name("name")
-                && node_text(&name_node, source) == method_name {
-                    return member.child_by_field_name("body");
-                }
+            && node_text(&name_node, source) == method_name
+        {
+            return member.child_by_field_name("body");
+        }
     }
     None
 }
@@ -244,17 +246,17 @@ fn trace_node_recursive(
 
             // Check for bare method call (no receiver/object) — internal method
             let has_object = node.child_by_field_name("object").is_some();
-            if !has_object
-                && let Some(name_node) = node.child_by_field_name("name") {
-                    let method_name = node_text(&name_node, source);
-                    // Try to resolve and trace the internal method
-                    if let Some(cb) = class_body
-                        && depth < MAX_DEPTH
-                            && let Some(target_body) = find_method_in_class(cb, &method_name, source) {
-                                trace_node_recursive(&target_body, source, ctx, depth + 1, steps, Some(cb));
-                                return;
-                            }
+            if !has_object && let Some(name_node) = node.child_by_field_name("name") {
+                let method_name = node_text(&name_node, source);
+                // Try to resolve and trace the internal method
+                if let Some(cb) = class_body
+                    && depth < MAX_DEPTH
+                    && let Some(target_body) = find_method_in_class(cb, &method_name, source)
+                {
+                    trace_node_recursive(&target_body, source, ctx, depth + 1, steps, Some(cb));
+                    return;
                 }
+            }
 
             let step = classify_method_call(&text, ctx, depth);
             if let Some(s) = step {
@@ -288,12 +290,26 @@ fn trace_node_recursive(
 
             let mut if_children = Vec::new();
             if let Some(consequence) = node.child_by_field_name("consequence") {
-                trace_node_recursive(&consequence, source, ctx, depth + 1, &mut if_children, class_body);
+                trace_node_recursive(
+                    &consequence,
+                    source,
+                    ctx,
+                    depth + 1,
+                    &mut if_children,
+                    class_body,
+                );
             }
 
             let mut else_children = Vec::new();
             if let Some(alternative) = node.child_by_field_name("alternative") {
-                trace_node_recursive(&alternative, source, ctx, depth + 1, &mut else_children, class_body);
+                trace_node_recursive(
+                    &alternative,
+                    source,
+                    ctx,
+                    depth + 1,
+                    &mut else_children,
+                    class_body,
+                );
             }
 
             if !if_children.is_empty() || !else_children.is_empty() {

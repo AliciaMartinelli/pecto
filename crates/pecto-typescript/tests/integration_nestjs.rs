@@ -6,14 +6,10 @@ use std::path::Path;
 #[test]
 #[ignore]
 fn test_nestjs_typeorm_sample() {
-    let project_dir = Path::new(env!("HOME"))
-        .join("Desktop/nest/sample/05-sql-typeorm");
+    let project_dir = Path::new(env!("HOME")).join("Desktop/nest/sample/05-sql-typeorm");
 
     if !project_dir.exists() {
-        eprintln!(
-            "Skipping: {} does not exist",
-            project_dir.display()
-        );
+        eprintln!("Skipping: {} does not exist", project_dir.display());
         return;
     }
 
@@ -27,11 +23,7 @@ fn test_nestjs_typeorm_sample() {
     );
 
     // === Endpoints ===
-    let total_endpoints: usize = spec
-        .capabilities
-        .iter()
-        .map(|c| c.endpoints.len())
-        .sum();
+    let total_endpoints: usize = spec.capabilities.iter().map(|c| c.endpoints.len()).sum();
     assert_eq!(
         total_endpoints, 4,
         "Should find exactly 4 endpoints (GET, GET/:id, POST, DELETE)"
@@ -43,9 +35,21 @@ fn test_nestjs_typeorm_sample() {
         .iter()
         .flat_map(|c| &c.endpoints)
         .collect();
-    assert!(all_endpoints.iter().any(|e| e.method == pecto_core::model::HttpMethod::Get && e.path == "/users"));
-    assert!(all_endpoints.iter().any(|e| e.method == pecto_core::model::HttpMethod::Post && e.path == "/users"));
-    assert!(all_endpoints.iter().any(|e| e.method == pecto_core::model::HttpMethod::Delete && e.path.contains("users")));
+    assert!(
+        all_endpoints
+            .iter()
+            .any(|e| e.method == pecto_core::model::HttpMethod::Get && e.path == "/users")
+    );
+    assert!(
+        all_endpoints
+            .iter()
+            .any(|e| e.method == pecto_core::model::HttpMethod::Post && e.path == "/users")
+    );
+    assert!(
+        all_endpoints
+            .iter()
+            .any(|e| e.method == pecto_core::model::HttpMethod::Delete && e.path.contains("users"))
+    );
 
     // === Entity ===
     let all_entities: Vec<String> = spec
@@ -94,7 +98,9 @@ fn test_nestjs_typeorm_sample() {
     );
     // UsersController -> UsersService
     assert!(
-        spec.dependencies.iter().any(|d| d.from.contains("users") && d.to.contains("service")),
+        spec.dependencies
+            .iter()
+            .any(|d| d.from.contains("users") && d.to.contains("service")),
         "Should have controller -> service dependency"
     );
 
@@ -106,7 +112,10 @@ fn test_nestjs_typeorm_sample() {
 
     // Should NOT include test files
     assert!(
-        !spec.capabilities.iter().any(|c| c.source.contains("test/") || c.source.contains(".spec.")),
+        !spec
+            .capabilities
+            .iter()
+            .any(|c| c.source.contains("test/") || c.source.contains(".spec.")),
         "Should not include test files"
     );
 

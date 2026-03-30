@@ -499,11 +499,7 @@ fn cmd_check(path: &Path, rules_path: Option<&Path>, language: &Language) -> Res
 
     eprintln!();
     if failed == 0 {
-        eprintln!(
-            "{} {} rules passed",
-            "✓".bold().green(),
-            passed
-        );
+        eprintln!("{} {} rules passed", "✓".bold().green(), passed);
         Ok(())
     } else {
         eprintln!(

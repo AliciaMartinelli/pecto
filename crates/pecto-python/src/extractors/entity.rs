@@ -80,7 +80,10 @@ pub fn extract(file: &ParsedFile) -> Option<Capability> {
                 continue;
             }
             let bases = get_class_bases(&class_node, source);
-            if bases.iter().any(|b| known_model_classes.iter().any(|k| k == b)) {
+            if bases
+                .iter()
+                .any(|b| known_model_classes.iter().any(|k| k == b))
+            {
                 known_model_classes.push(name);
                 changed = true;
             }
@@ -114,11 +117,7 @@ pub fn extract(file: &ParsedFile) -> Option<Capability> {
         let has_table_true = has_table_kwarg(&class_node, source);
 
         // Filter bases to only real class names (exclude keyword args like table=True)
-        let class_bases: Vec<String> = bases
-            .iter()
-            .filter(|b| !b.contains('='))
-            .cloned()
-            .collect();
+        let class_bases: Vec<String> = bases.iter().filter(|b| !b.contains('=')).cloned().collect();
 
         // SQLAlchemy: class User(Base) or class User(DeclarativeBase)
         if bases
@@ -148,10 +147,9 @@ pub fn extract(file: &ParsedFile) -> Option<Capability> {
         }
         // Pydantic/SQLModel (non-table): direct base or inherits from known model in same file
         else if bases.iter().any(|b| {
-            b == "BaseModel"
-                || b == "SQLModel"
-                || known_model_classes.iter().any(|k| k == b)
-        }) && let Some(mut entity) = extract_pydantic_model(&class_node, source, &class_name)
+            b == "BaseModel" || b == "SQLModel" || known_model_classes.iter().any(|k| k == b)
+        }) && let Some(mut entity) =
+            extract_pydantic_model(&class_node, source, &class_name)
         {
             entity.bases = class_bases;
             entities.push(entity);
@@ -330,7 +328,9 @@ fn extract_sqlalchemy_entity(
         }
 
         // field = Column(Type, ...) or field: Mapped[type] = mapped_column(...)
-        if (text.contains("Column(") || text.contains("relationship(") || text.contains("mapped_column("))
+        if (text.contains("Column(")
+            || text.contains("relationship(")
+            || text.contains("mapped_column("))
             && let Some(field) = parse_sqlalchemy_field(&text)
         {
             fields.push(field);
@@ -372,7 +372,11 @@ fn parse_sqlalchemy_field(text: &str) -> Option<EntityField> {
     };
 
     if rhs.starts_with("Column(") || rhs.starts_with("mapped_column(") {
-        let prefix_len = if rhs.starts_with("mapped_column(") { 14 } else { 7 };
+        let prefix_len = if rhs.starts_with("mapped_column(") {
+            14
+        } else {
+            7
+        };
         let inner = &rhs[prefix_len..rhs.rfind(')')?];
         let args: Vec<&str> = inner.split(',').map(|s| s.trim()).collect();
         let field_type = args.first().unwrap_or(&"").to_string();
@@ -717,11 +721,23 @@ class User(UserBase, table=True):
         // UserBase is Pydantic-like (no table=True), User is a table entity
         assert!(capability.entities.len() >= 2);
 
-        let user = capability.entities.iter().find(|e| e.name == "User").unwrap();
+        let user = capability
+            .entities
+            .iter()
+            .find(|e| e.name == "User")
+            .unwrap();
         assert_eq!(user.table, "user");
-        assert!(user.fields.iter().any(|f| f.name == "id" && f.constraints.contains(&"primary_key".to_string())));
+        assert!(
+            user.fields
+                .iter()
+                .any(|f| f.name == "id" && f.constraints.contains(&"primary_key".to_string()))
+        );
         assert!(user.fields.iter().any(|f| f.name == "hashed_password"));
-        assert!(user.fields.iter().any(|f| f.constraints.contains(&"relationship".to_string())));
+        assert!(
+            user.fields
+                .iter()
+                .any(|f| f.constraints.contains(&"relationship".to_string()))
+        );
     }
 
     #[test]
@@ -746,7 +762,11 @@ class Trade(Base):
         assert_eq!(trade.name, "Trade");
         assert_eq!(trade.table, "trades");
         assert_eq!(trade.fields.len(), 4);
-        assert!(trade.fields[0].constraints.contains(&"primary_key".to_string()));
+        assert!(
+            trade.fields[0]
+                .constraints
+                .contains(&"primary_key".to_string())
+        );
         assert_eq!(trade.fields[1].name, "ticker");
         assert_eq!(trade.fields[1].field_type, "String(20)");
         assert!(trade.fields[3].constraints.contains(&"unique".to_string()));
@@ -774,19 +794,47 @@ class ItemCreate(ItemBase):
         let file = parse_file(source, "models.py");
         let capability = extract(&file).unwrap();
 
-        let names: Vec<&str> = capability.entities.iter().map(|e| e.name.as_str()).collect();
-        assert!(names.contains(&"UserBase"), "Should find UserBase, got: {:?}", names);
-        assert!(names.contains(&"UserCreate"), "Should find UserCreate (inherits UserBase), got: {:?}", names);
-        assert!(names.contains(&"ItemBase"), "Should find ItemBase, got: {:?}", names);
-        assert!(names.contains(&"ItemCreate"), "Should find ItemCreate (inherits ItemBase), got: {:?}", names);
+        let names: Vec<&str> = capability
+            .entities
+            .iter()
+            .map(|e| e.name.as_str())
+            .collect();
+        assert!(
+            names.contains(&"UserBase"),
+            "Should find UserBase, got: {:?}",
+            names
+        );
+        assert!(
+            names.contains(&"UserCreate"),
+            "Should find UserCreate (inherits UserBase), got: {:?}",
+            names
+        );
+        assert!(
+            names.contains(&"ItemBase"),
+            "Should find ItemBase, got: {:?}",
+            names
+        );
+        assert!(
+            names.contains(&"ItemCreate"),
+            "Should find ItemCreate (inherits ItemBase), got: {:?}",
+            names
+        );
 
         // UserCreate should have its own field (password)
-        let user_create = capability.entities.iter().find(|e| e.name == "UserCreate").unwrap();
+        let user_create = capability
+            .entities
+            .iter()
+            .find(|e| e.name == "UserCreate")
+            .unwrap();
         assert_eq!(user_create.fields.len(), 1);
         assert_eq!(user_create.fields[0].name, "password");
 
         // ItemCreate has `pass` body → 0 fields (inherited fields not resolved)
-        let item_create = capability.entities.iter().find(|e| e.name == "ItemCreate").unwrap();
+        let item_create = capability
+            .entities
+            .iter()
+            .find(|e| e.name == "ItemCreate")
+            .unwrap();
         assert_eq!(item_create.fields.len(), 0);
     }
 

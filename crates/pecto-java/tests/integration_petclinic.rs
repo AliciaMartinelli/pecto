@@ -67,7 +67,16 @@ fn test_spring_petclinic_rest() {
         .iter()
         .flat_map(|c| c.entities.iter().map(|e| e.name.clone()))
         .collect();
-    for expected in &["Owner", "Pet", "Vet", "Visit", "Specialty", "PetType", "Role", "User"] {
+    for expected in &[
+        "Owner",
+        "Pet",
+        "Vet",
+        "Visit",
+        "Specialty",
+        "PetType",
+        "Role",
+        "User",
+    ] {
         assert!(
             entity_names.iter().any(|n| n == expected),
             "Should find {} entity, found: {:?}",

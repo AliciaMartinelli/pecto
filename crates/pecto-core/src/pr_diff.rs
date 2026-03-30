@@ -125,10 +125,7 @@ pub fn generate_pr_diff(base: &ProjectSpec, head: &ProjectSpec) -> String {
     }
 
     // Entities section
-    if !ent_diff.added.is_empty()
-        || !ent_diff.removed.is_empty()
-        || !ent_diff.modified.is_empty()
-    {
+    if !ent_diff.added.is_empty() || !ent_diff.removed.is_empty() || !ent_diff.modified.is_empty() {
         let _ = writeln!(md, "### Entities\n");
         let _ = writeln!(md, "| Status | Entity | Details |");
         let _ = writeln!(md, "|--------|--------|---------|");
@@ -150,7 +147,11 @@ pub fn generate_pr_diff(base: &ProjectSpec, head: &ProjectSpec) -> String {
         let _ = writeln!(md, "| Status | From | | To | Kind |");
         let _ = writeln!(md, "|--------|------|-|-----|------|");
         for dep in &dep_diff.added {
-            let _ = writeln!(md, "| 🆕 | `{}` | → | `{}` | {} |", dep.from, dep.to, dep.kind);
+            let _ = writeln!(
+                md,
+                "| 🆕 | `{}` | → | `{}` | {} |",
+                dep.from, dep.to, dep.kind
+            );
         }
         for dep in &dep_diff.removed {
             let _ = writeln!(
@@ -169,11 +170,7 @@ pub fn generate_pr_diff(base: &ProjectSpec, head: &ProjectSpec) -> String {
     {
         let _ = writeln!(md, "### Flow Changes\n");
         for f in &flow_diff.added {
-            let _ = writeln!(
-                md,
-                "- 🆕 **{}**: new flow ({} steps)",
-                f.trigger, f.detail
-            );
+            let _ = writeln!(md, "- 🆕 **{}**: new flow ({} steps)", f.trigger, f.detail);
         }
         for f in &flow_diff.modified {
             let _ = writeln!(md, "- ✏️ **{}**: {}", f.trigger, f.detail);
@@ -239,7 +236,7 @@ struct FlowEntry {
 }
 
 struct CapDiff {
-    added: Vec<(String, String)>,   // (name, type)
+    added: Vec<(String, String)>, // (name, type)
     removed: Vec<(String, String)>,
 }
 
@@ -453,10 +450,7 @@ fn diff_flows(base: &ProjectSpec, head: &ProjectSpec) -> FlowDiff {
 }
 
 fn count_steps(steps: &[FlowStep]) -> usize {
-    steps
-        .iter()
-        .map(|s| 1 + count_steps(&s.children))
-        .sum()
+    steps.iter().map(|s| 1 + count_steps(&s.children)).sum()
 }
 
 fn diff_capabilities(base: &ProjectSpec, head: &ProjectSpec) -> CapDiff {

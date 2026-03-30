@@ -133,11 +133,7 @@ fn find_endpoint_method_body<'a>(
     None
 }
 
-fn trace_method_body(
-    body: &tree_sitter::Node,
-    source: &[u8],
-    depth: usize,
-) -> Vec<FlowStep> {
+fn trace_method_body(body: &tree_sitter::Node, source: &[u8], depth: usize) -> Vec<FlowStep> {
     let class_body = find_enclosing_class_body(body);
     let mut steps = Vec::new();
     if depth >= MAX_DEPTH {
@@ -147,9 +143,7 @@ fn trace_method_body(
     steps
 }
 
-fn find_enclosing_class_body<'a>(
-    node: &'a tree_sitter::Node<'a>,
-) -> Option<tree_sitter::Node<'a>> {
+fn find_enclosing_class_body<'a>(node: &'a tree_sitter::Node<'a>) -> Option<tree_sitter::Node<'a>> {
     let mut current = node.parent();
     while let Some(n) = current {
         if n.kind() == "class_declaration" {
@@ -169,9 +163,10 @@ fn find_method_in_class<'a>(
         let member = class_body.named_child(i).unwrap();
         if member.kind() == "method_declaration"
             && let Some(name_node) = member.child_by_field_name("name")
-                && node_text(&name_node, source) == method_name {
-                    return member.child_by_field_name("body");
-                }
+            && node_text(&name_node, source) == method_name
+        {
+            return member.child_by_field_name("body");
+        }
     }
     None
 }
@@ -193,41 +188,43 @@ fn trace_node_recursive(
                     let method_name = node_text(&expr, source);
                     if let Some(cb) = class_body
                         && depth < MAX_DEPTH
-                            && let Some(target_body) =
-                                find_method_in_class(cb, &method_name, source)
-                            {
-                                trace_node_recursive(
-                                    &target_body, source, depth + 1, steps, Some(cb),
-                                );
-                                return;
-                            }
+                        && let Some(target_body) = find_method_in_class(cb, &method_name, source)
+                    {
+                        trace_node_recursive(&target_body, source, depth + 1, steps, Some(cb));
+                        return;
+                    }
                 }
 
                 // _service.Method() or service.Method()
                 if expr.kind() == "member_access_expression"
-                    && let Some(obj) = expr.child_by_field_name("expression") {
-                        let obj_text = node_text(&obj, source);
-                        if let Some(name) = expr.child_by_field_name("name") {
-                            let method_name = node_text(&name, source);
+                    && let Some(obj) = expr.child_by_field_name("expression")
+                {
+                    let obj_text = node_text(&obj, source);
+                    if let Some(name) = expr.child_by_field_name("name") {
+                        let method_name = node_text(&name, source);
 
-                            // Await expressions: unwrap
-                            let actual_obj = obj_text.trim_start_matches("await ");
+                        // Await expressions: unwrap
+                        let actual_obj = obj_text.trim_start_matches("await ");
 
-                            if actual_obj == "this" {
-                                // this.Method() → resolve internally
-                                if let Some(cb) = class_body
-                                    && depth < MAX_DEPTH
-                                        && let Some(target_body) =
-                                            find_method_in_class(cb, &method_name, source)
-                                        {
-                                            trace_node_recursive(
-                                                &target_body, source, depth + 1, steps, Some(cb),
-                                            );
-                                            return;
-                                        }
+                        if actual_obj == "this" {
+                            // this.Method() → resolve internally
+                            if let Some(cb) = class_body
+                                && depth < MAX_DEPTH
+                                && let Some(target_body) =
+                                    find_method_in_class(cb, &method_name, source)
+                            {
+                                trace_node_recursive(
+                                    &target_body,
+                                    source,
+                                    depth + 1,
+                                    steps,
+                                    Some(cb),
+                                );
+                                return;
                             }
                         }
                     }
+                }
             }
 
             if let Some(step) = classify_method_call(&text) {
@@ -261,13 +258,23 @@ fn trace_node_recursive(
 
             let mut if_children = Vec::new();
             if let Some(consequence) = node.child_by_field_name("consequence") {
-                trace_node_recursive(&consequence, source, depth + 1, &mut if_children, class_body);
+                trace_node_recursive(
+                    &consequence,
+                    source,
+                    depth + 1,
+                    &mut if_children,
+                    class_body,
+                );
             }
 
             let mut else_children = Vec::new();
             if let Some(alternative) = node.child_by_field_name("alternative") {
                 trace_node_recursive(
-                    &alternative, source, depth + 1, &mut else_children, class_body,
+                    &alternative,
+                    source,
+                    depth + 1,
+                    &mut else_children,
+                    class_body,
                 );
             }
 
@@ -311,7 +318,12 @@ fn classify_method_call(text: &str) -> Option<FlowStep> {
     {
         let target = text.split('.').next().unwrap_or("").trim();
         return Some(FlowStep {
-            actor: if target.is_empty() { "DbContext" } else { target }.to_string(),
+            actor: if target.is_empty() {
+                "DbContext"
+            } else {
+                target
+            }
+            .to_string(),
             method: "save".to_string(),
             kind: FlowStepKind::DbWrite,
             description: format!("DB write: {}", target),
@@ -465,20 +477,27 @@ fn find_endpoint_method_text(
         HttpMethod::Patch => "HttpPatch",
     };
 
-    fn walk<'a>(node: &'a tree_sitter::Node<'a>, kind: &str, source: &[u8], attr: &str) -> Option<String> {
+    fn walk<'a>(
+        node: &'a tree_sitter::Node<'a>,
+        kind: &str,
+        source: &[u8],
+        attr: &str,
+    ) -> Option<String> {
         if node.kind() == kind
-            && let Some(body) = node.child_by_field_name("body") {
-                for i in 0..body.named_child_count() {
-                    let member = body.named_child(i).unwrap();
-                    if member.kind() == "method_declaration" {
-                        let attrs = collect_attributes(&member, source);
-                        if attrs.iter().any(|a| a.name == attr)
-                            && let Some(mb) = member.child_by_field_name("body") {
-                                return Some(node_text(&mb, source));
-                            }
+            && let Some(body) = node.child_by_field_name("body")
+        {
+            for i in 0..body.named_child_count() {
+                let member = body.named_child(i).unwrap();
+                if member.kind() == "method_declaration" {
+                    let attrs = collect_attributes(&member, source);
+                    if attrs.iter().any(|a| a.name == attr)
+                        && let Some(mb) = member.child_by_field_name("body")
+                    {
+                        return Some(node_text(&mb, source));
                     }
                 }
             }
+        }
         for i in 0..node.named_child_count() {
             let child = node.named_child(i).unwrap();
             if let Some(r) = walk(&child, kind, source, attr) {

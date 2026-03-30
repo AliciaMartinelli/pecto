@@ -35,12 +35,8 @@ pub fn merge_inherited_fields(spec: &mut ProjectSpec) {
                 continue;
             }
 
-            let inherited = collect_inherited_fields(
-                &entity.name,
-                &entity.fields,
-                &field_map,
-                &bases_map,
-            );
+            let inherited =
+                collect_inherited_fields(&entity.name, &entity.fields, &field_map, &bases_map);
 
             if !inherited.is_empty() {
                 resolved.insert(entity.name.clone(), inherited);
@@ -142,7 +138,11 @@ mod tests {
 
         let mut cap = Capability::new("models".to_string(), "models.py".to_string());
         cap.entities = vec![
-            make_entity("UserBase", vec![("email", "str"), ("is_active", "bool")], vec![]),
+            make_entity(
+                "UserBase",
+                vec![("email", "str"), ("is_active", "bool")],
+                vec![],
+            ),
             make_entity("UserCreate", vec![("password", "str")], vec!["UserBase"]),
         ];
         spec.capabilities.push(cap);
@@ -193,7 +193,11 @@ mod tests {
         let mut cap = Capability::new("models".to_string(), "models.py".to_string());
         cap.entities = vec![
             make_entity("Base", vec![("email", "str"), ("name", "str")], vec![]),
-            make_entity("User", vec![("email", "EmailStr"), ("age", "int")], vec!["Base"]),
+            make_entity(
+                "User",
+                vec![("email", "EmailStr"), ("age", "int")],
+                vec!["Base"],
+            ),
         ];
         spec.capabilities.push(cap);
 
@@ -211,9 +215,11 @@ mod tests {
         let mut spec = ProjectSpec::new("test".to_string());
 
         let mut cap = Capability::new("models".to_string(), "models.py".to_string());
-        cap.entities = vec![
-            make_entity("User", vec![("id", "int"), ("name", "str")], vec![]),
-        ];
+        cap.entities = vec![make_entity(
+            "User",
+            vec![("id", "int"), ("name", "str")],
+            vec![],
+        )];
         spec.capabilities.push(cap);
 
         merge_inherited_fields(&mut spec);
@@ -228,11 +234,19 @@ mod tests {
         let mut spec = ProjectSpec::new("test".to_string());
 
         let mut cap1 = Capability::new("base-model".to_string(), "base.py".to_string());
-        cap1.entities = vec![make_entity("BaseEntity", vec![("id", "int"), ("created_at", "datetime")], vec![])];
+        cap1.entities = vec![make_entity(
+            "BaseEntity",
+            vec![("id", "int"), ("created_at", "datetime")],
+            vec![],
+        )];
         spec.capabilities.push(cap1);
 
         let mut cap2 = Capability::new("user-model".to_string(), "user.py".to_string());
-        cap2.entities = vec![make_entity("User", vec![("name", "str")], vec!["BaseEntity"])];
+        cap2.entities = vec![make_entity(
+            "User",
+            vec![("name", "str")],
+            vec!["BaseEntity"],
+        )];
         spec.capabilities.push(cap2);
 
         merge_inherited_fields(&mut spec);

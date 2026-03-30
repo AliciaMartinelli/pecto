@@ -6,36 +6,24 @@ use std::path::Path;
 #[test]
 #[ignore]
 fn test_fastapi_template() {
-    let project_dir = Path::new(env!("HOME"))
-        .join("Desktop/full-stack-fastapi-template/backend");
+    let project_dir = Path::new(env!("HOME")).join("Desktop/full-stack-fastapi-template/backend");
 
     if !project_dir.exists() {
-        eprintln!(
-            "Skipping: {} does not exist",
-            project_dir.display()
-        );
+        eprintln!("Skipping: {} does not exist", project_dir.display());
         return;
     }
 
-    let mut spec =
-        pecto_python::analyze_project(&project_dir).expect("Analysis should succeed");
+    let mut spec = pecto_python::analyze_project(&project_dir).expect("Analysis should succeed");
     pecto_core::domains::cluster_domains(&mut spec);
 
     assert!(
         spec.files_analyzed > 0,
         "Should analyze at least some files"
     );
-    assert!(
-        !spec.capabilities.is_empty(),
-        "Should find capabilities"
-    );
+    assert!(!spec.capabilities.is_empty(), "Should find capabilities");
 
     // === Endpoints ===
-    let total_endpoints: usize = spec
-        .capabilities
-        .iter()
-        .map(|c| c.endpoints.len())
-        .sum();
+    let total_endpoints: usize = spec.capabilities.iter().map(|c| c.endpoints.len()).sum();
     assert!(
         total_endpoints >= 20,
         "Should find at least 20 endpoints, found {}",
@@ -88,7 +76,9 @@ fn test_fastapi_template() {
 
     // === Pydantic DTOs ===
     assert!(
-        all_entities.iter().any(|n| n == "UserCreate" || n == "UserBase"),
+        all_entities
+            .iter()
+            .any(|n| n == "UserCreate" || n == "UserBase"),
         "Should find Pydantic DTO models, found: {:?}",
         all_entities
     );

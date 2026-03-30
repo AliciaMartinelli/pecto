@@ -215,7 +215,9 @@ fn extract_endpoint_from_method(
     })
 }
 
-pub(crate) fn extract_http_method_and_path(annotations: &[AnnotationInfo]) -> Option<(HttpMethod, String)> {
+pub(crate) fn extract_http_method_and_path(
+    annotations: &[AnnotationInfo],
+) -> Option<(HttpMethod, String)> {
     for ann in annotations {
         let (method, path) = match ann.name.as_str() {
             "GetMapping" => (HttpMethod::Get, extract_path_from_annotation(ann)),

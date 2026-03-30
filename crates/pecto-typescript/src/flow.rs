@@ -31,10 +31,7 @@ pub fn extract_flows(spec: &mut ProjectSpec, ctx: &AnalysisContext) {
                     kind: FlowStepKind::SecurityGuard,
                     description: format!(
                         "Auth: {}",
-                        sec.roles
-                            .first()
-                            .map(|r| r.as_str())
-                            .unwrap_or("required")
+                        sec.roles.first().map(|r| r.as_str()).unwrap_or("required")
                     ),
                     condition: None,
                     children: Vec::new(),
@@ -133,8 +130,7 @@ fn find_endpoint_method_body<'a>(
                         for k in 0..member.child_count() {
                             let child = member.child(k).unwrap();
                             if child.kind() == "decorator" {
-                                method_decorators
-                                    .push(node_text(&child, source).to_lowercase());
+                                method_decorators.push(node_text(&child, source).to_lowercase());
                             }
                         }
 
@@ -163,7 +159,7 @@ fn find_endpoint_method_body<'a>(
                                 // Find the {param} segment and check for both {param} and :param
                                 endpoint.path.rsplit('/').any(|seg| {
                                     if seg.starts_with('{') && seg.ends_with('}') {
-                                        let colon = format!(":{}", &seg[1..seg.len()-1]);
+                                        let colon = format!(":{}", &seg[1..seg.len() - 1]);
                                         dec_text.contains(seg) || dec_text.contains(&colon)
                                     } else {
                                         false
@@ -224,9 +220,7 @@ fn trace_method_body(
 }
 
 /// Walk up the tree to find the enclosing class body.
-fn find_enclosing_class_body<'a>(
-    node: &'a tree_sitter::Node<'a>,
-) -> Option<tree_sitter::Node<'a>> {
+fn find_enclosing_class_body<'a>(node: &'a tree_sitter::Node<'a>) -> Option<tree_sitter::Node<'a>> {
     let mut current = node.parent();
     while let Some(n) = current {
         if n.kind() == "class_declaration" || n.kind() == "class" {
@@ -247,9 +241,10 @@ fn find_method_in_class<'a>(
         let member = class_body.named_child(i).unwrap();
         if member.kind() == "method_definition"
             && let Some(name_node) = member.child_by_field_name("name")
-                && node_text(&name_node, source) == method_name {
-                    return member.child_by_field_name("body");
-                }
+            && node_text(&name_node, source) == method_name
+        {
+            return member.child_by_field_name("body");
+        }
     }
     None
 }
@@ -269,54 +264,46 @@ fn trace_node_recursive(
             // Check for this.method() or this.service.method() calls
             if let Some(func) = node.child_by_field_name("function")
                 && func.kind() == "member_expression"
-                    && let Some(obj) = func.child_by_field_name("object") {
-                        let obj_text = node_text(&obj, source);
+                && let Some(obj) = func.child_by_field_name("object")
+            {
+                let obj_text = node_text(&obj, source);
 
-                        // this.method() → try to resolve as internal class method
-                        if obj_text == "this"
-                            && let Some(prop) = func.child_by_field_name("property") {
-                                let method_name = node_text(&prop, source);
-                                if let Some(cb) = class_body
-                                    && depth < MAX_DEPTH
-                                        && let Some(target_body) =
-                                            find_method_in_class(cb, &method_name, source)
-                                        {
-                                            trace_node_recursive(
-                                                &target_body,
-                                                source,
-                                                depth + 1,
-                                                steps,
-                                                Some(cb),
-                                            );
-                                            return;
-                                        }
-                            }
-
-                        // this.service.method() → service call
-                        if obj.kind() == "member_expression"
-                            && let Some(inner_obj) = obj.child_by_field_name("object")
-                                && node_text(&inner_obj, source) == "this"
-                                    && let Some(svc) = obj.child_by_field_name("property")
-                                        && let Some(method) = func.child_by_field_name("property")
-                                        {
-                                            let svc_name = node_text(&svc, source);
-                                            let method_name = node_text(&method, source);
-                                            if !is_excluded_ts_method(&method_name) {
-                                                steps.push(FlowStep {
-                                                    actor: svc_name.clone(),
-                                                    method: method_name.clone(),
-                                                    kind: FlowStepKind::ServiceCall,
-                                                    description: format!(
-                                                        "Call: {}.{}()",
-                                                        svc_name, method_name
-                                                    ),
-                                                    condition: None,
-                                                    children: Vec::new(),
-                                                });
-                                                return;
-                                            }
-                                        }
+                // this.method() → try to resolve as internal class method
+                if obj_text == "this"
+                    && let Some(prop) = func.child_by_field_name("property")
+                {
+                    let method_name = node_text(&prop, source);
+                    if let Some(cb) = class_body
+                        && depth < MAX_DEPTH
+                        && let Some(target_body) = find_method_in_class(cb, &method_name, source)
+                    {
+                        trace_node_recursive(&target_body, source, depth + 1, steps, Some(cb));
+                        return;
                     }
+                }
+
+                // this.service.method() → service call
+                if obj.kind() == "member_expression"
+                    && let Some(inner_obj) = obj.child_by_field_name("object")
+                    && node_text(&inner_obj, source) == "this"
+                    && let Some(svc) = obj.child_by_field_name("property")
+                    && let Some(method) = func.child_by_field_name("property")
+                {
+                    let svc_name = node_text(&svc, source);
+                    let method_name = node_text(&method, source);
+                    if !is_excluded_ts_method(&method_name) {
+                        steps.push(FlowStep {
+                            actor: svc_name.clone(),
+                            method: method_name.clone(),
+                            kind: FlowStepKind::ServiceCall,
+                            description: format!("Call: {}.{}()", svc_name, method_name),
+                            condition: None,
+                            children: Vec::new(),
+                        });
+                        return;
+                    }
+                }
+            }
 
             // Classify the call by text patterns
             if let Some(step) = classify_method_call(&text) {
@@ -350,7 +337,13 @@ fn trace_node_recursive(
 
             let mut if_children = Vec::new();
             if let Some(consequence) = node.child_by_field_name("consequence") {
-                trace_node_recursive(&consequence, source, depth + 1, &mut if_children, class_body);
+                trace_node_recursive(
+                    &consequence,
+                    source,
+                    depth + 1,
+                    &mut if_children,
+                    class_body,
+                );
             }
 
             let mut else_children = Vec::new();

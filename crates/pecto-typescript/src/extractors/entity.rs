@@ -73,7 +73,11 @@ fn extract_typeorm_entities(source: &str, entities: &mut Vec<Entity>) {
                         .unwrap_or("")
                         .trim()
                         .to_string();
-                    if base.is_empty() { Vec::new() } else { vec![base] }
+                    if base.is_empty() {
+                        Vec::new()
+                    } else {
+                        vec![base]
+                    }
                 } else {
                     Vec::new()
                 };

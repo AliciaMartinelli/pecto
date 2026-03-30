@@ -34,11 +34,26 @@ impl RuleValue {
 
 fn default_rules() -> BTreeMap<String, RuleValue> {
     let mut rules = BTreeMap::new();
-    rules.insert("no-circular-dependencies".to_string(), RuleValue::Enabled(true));
-    rules.insert("controllers-no-direct-db-access".to_string(), RuleValue::Enabled(true));
-    rules.insert("all-endpoints-need-authentication".to_string(), RuleValue::Enabled(true));
-    rules.insert("no-entity-without-validation".to_string(), RuleValue::Enabled(false));
-    rules.insert("max-service-dependencies".to_string(), RuleValue::Threshold(5));
+    rules.insert(
+        "no-circular-dependencies".to_string(),
+        RuleValue::Enabled(true),
+    );
+    rules.insert(
+        "controllers-no-direct-db-access".to_string(),
+        RuleValue::Enabled(true),
+    );
+    rules.insert(
+        "all-endpoints-need-authentication".to_string(),
+        RuleValue::Enabled(true),
+    );
+    rules.insert(
+        "no-entity-without-validation".to_string(),
+        RuleValue::Enabled(false),
+    );
+    rules.insert(
+        "max-service-dependencies".to_string(),
+        RuleValue::Threshold(5),
+    );
     rules
 }
 
@@ -95,7 +110,10 @@ fn check_no_circular_deps(spec: &ProjectSpec) -> RuleResult {
     // Build adjacency list
     let mut graph: HashMap<&str, Vec<&str>> = HashMap::new();
     for dep in &spec.dependencies {
-        graph.entry(dep.from.as_str()).or_default().push(dep.to.as_str());
+        graph
+            .entry(dep.from.as_str())
+            .or_default()
+            .push(dep.to.as_str());
     }
 
     // DFS cycle detection
@@ -163,9 +181,7 @@ fn check_controllers_no_db(spec: &ProjectSpec) -> RuleResult {
         .capabilities
         .iter()
         .filter(|c| {
-            !c.entities.is_empty()
-                || c.name.contains("repository")
-                || c.name.contains("context")
+            !c.entities.is_empty() || c.name.contains("repository") || c.name.contains("context")
         })
         .map(|c| c.name.as_str())
         .collect();
@@ -219,10 +235,7 @@ fn check_entity_validation(spec: &ProjectSpec) -> RuleResult {
 
     for cap in &spec.capabilities {
         for ep in &cap.endpoints {
-            let has_body = ep
-                .input
-                .as_ref()
-                .is_some_and(|i| i.body.is_some());
+            let has_body = ep.input.as_ref().is_some_and(|i| i.body.is_some());
             let has_validation = !ep.validation.is_empty();
 
             if has_body && !has_validation {
@@ -403,7 +416,10 @@ mod tests {
         });
         spec.capabilities.push(cap);
 
-        let config = config_with("all-endpoints-need-authentication", RuleValue::Enabled(true));
+        let config = config_with(
+            "all-endpoints-need-authentication",
+            RuleValue::Enabled(true),
+        );
         let results = check_rules(&spec, &config);
         assert!(!results[0].passed);
         assert!(results[0].violations[0].contains("POST"));

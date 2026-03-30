@@ -134,9 +134,7 @@ fn resolve_module_to_capability(
             .unwrap_or(&"")
             .trim_end_matches(".py");
 
-        if cap_file == *last_segment
-            || cap.name == *last_segment
-            || cap.name.contains(last_segment)
+        if cap_file == *last_segment || cap.name == *last_segment || cap.name.contains(last_segment)
         {
             return Some(cap.name.clone());
         }
@@ -147,10 +145,7 @@ fn resolve_module_to_capability(
 
 /// Check if a module path matches a source file path.
 fn module_path_matches_source(module: &str, source: &str) -> bool {
-    let source_parts: Vec<&str> = source
-        .trim_end_matches(".py")
-        .split('/')
-        .collect();
+    let source_parts: Vec<&str> = source.trim_end_matches(".py").split('/').collect();
     let module_parts: Vec<&str> = module.split('.').collect();
 
     if module_parts.len() > source_parts.len() {

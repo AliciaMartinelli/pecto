@@ -90,7 +90,10 @@ fn find_endpoint_function_body<'a>(
             for dec in &decorators {
                 let dec_method = dec.name.to_lowercase();
                 if dec_method == method_lower
-                    || dec.full_name.to_lowercase().ends_with(&format!(".{}", method_lower))
+                    || dec
+                        .full_name
+                        .to_lowercase()
+                        .ends_with(&format!(".{}", method_lower))
                 {
                     if let Some(path_arg) = dec.args.first() {
                         let clean_path = clean_string_literal(path_arg);
@@ -108,11 +111,7 @@ fn find_endpoint_function_body<'a>(
     None
 }
 
-fn trace_function_body(
-    body: &tree_sitter::Node,
-    source: &[u8],
-    depth: usize,
-) -> Vec<FlowStep> {
+fn trace_function_body(body: &tree_sitter::Node, source: &[u8], depth: usize) -> Vec<FlowStep> {
     let mut steps = Vec::new();
     if depth >= MAX_DEPTH {
         return steps;
@@ -142,7 +141,8 @@ fn trace_node_recursive(
                     return;
                 }
                 // Bare function call (no dot): e.g., send_email(...)
-                if !func_text.contains('.') && !func_text.is_empty()
+                if !func_text.contains('.')
+                    && !func_text.is_empty()
                     && func_text.chars().next().is_some_and(|c| c.is_lowercase())
                     && !is_excluded_py_target(&func_text)
                 {
@@ -429,7 +429,10 @@ fn find_endpoint_function_text(
             for dec in &decorators {
                 let dec_method = dec.name.to_lowercase();
                 if dec_method == method_lower
-                    || dec.full_name.to_lowercase().ends_with(&format!(".{}", method_lower))
+                    || dec
+                        .full_name
+                        .to_lowercase()
+                        .ends_with(&format!(".{}", method_lower))
                 {
                     if let Some(path_arg) = dec.args.first() {
                         let clean_path = clean_string_literal(path_arg);
@@ -438,9 +441,10 @@ fn find_endpoint_function_text(
                         }
                     }
                     if let Some(func) = node.child_by_field_name("definition")
-                        && let Some(body) = func.child_by_field_name("body") {
-                            return Some(node_text(&body, source));
-                        }
+                        && let Some(body) = func.child_by_field_name("body")
+                    {
+                        return Some(node_text(&body, source));
+                    }
                 }
             }
         }

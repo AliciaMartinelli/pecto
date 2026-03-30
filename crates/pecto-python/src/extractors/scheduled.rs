@@ -176,7 +176,10 @@ fn extract_apscheduler_jobs(source: &str, tasks: &mut Vec<ScheduledTask>) {
         let mut schedule = "apscheduler-job".to_string();
         let full_block = block.to_lowercase();
 
-        if full_block.contains("intervaltrigger") || full_block.contains("'interval'") || full_block.contains("\"interval\"") {
+        if full_block.contains("intervaltrigger")
+            || full_block.contains("'interval'")
+            || full_block.contains("\"interval\"")
+        {
             // Look for minutes=, hours=, seconds= anywhere in the block
             for arg in &args {
                 if let Some(v) = extract_simple_kwarg(arg, "minutes") {
@@ -203,7 +206,10 @@ fn extract_apscheduler_jobs(source: &str, tasks: &mut Vec<ScheduledTask>) {
                     break;
                 }
             }
-        } else if full_block.contains("crontrigger") || full_block.contains("'cron'") || full_block.contains("\"cron\"") {
+        } else if full_block.contains("crontrigger")
+            || full_block.contains("'cron'")
+            || full_block.contains("\"cron\"")
+        {
             schedule = "cron".to_string();
         }
 
