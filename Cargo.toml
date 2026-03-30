@@ -13,7 +13,7 @@ resolver = "2"
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
-repository = "https://github.com/pecto-dev/pecto"
+repository = "https://github.com/AliciaMartinelli/pecto"
 description = "Extract behavior specs from code through static analysis"
 
 [workspace.dependencies]
