@@ -671,10 +671,10 @@ function showDetail(name) {{
       html += `<div class="flow-header"><h4>Request Flows</h4></div>`;
       endpointFlows.forEach((flow, idx) => {{
         const flowIdx = spec.flows.indexOf(flow);
-        html += `<div class="detail-item" style="display:flex;justify-content:space-between;align-items:center">`;
-        html += `<span>${{flow.trigger}}</span>`;
         const isActive = activeFlowTrace && activeFlowTrace.flowIdx === flowIdx;
-        html += `<span style="display:flex;gap:4px">`;
+        html += `<div class="detail-item" style="display:flex;justify-content:space-between;align-items:center;gap:4px">`;
+        html += `<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${{flow.trigger}}</span>`;
+        html += `<span style="display:flex;gap:4px;flex-shrink:0">`;
         html += `<button class="trace-btn${{isActive ? ' active' : ''}}" data-flow-idx="${{flowIdx}}" onclick="toggleFlowTrace(${{flowIdx}})">Trace ◉</button>`;
         html += `<button class="copy-btn" onclick="showFlowOverlay(${{flowIdx}})">Flow ▶</button>`;
         html += `</span>`;
