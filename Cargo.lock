@@ -448,7 +448,7 @@ checksum = "d211803b9b6b570f68772237e415a029d5a50c65d382910b879fb19d3271f94d"
 
 [[package]]
 name = "pecto"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -469,7 +469,7 @@ dependencies = [
 
 [[package]]
 name = "pecto-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -480,7 +480,7 @@ dependencies = [
 
 [[package]]
 name = "pecto-csharp"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "pecto-core",
  "rayon",
@@ -492,7 +492,7 @@ dependencies = [
 
 [[package]]
 name = "pecto-java"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "pecto-core",
  "rayon",
@@ -504,7 +504,7 @@ dependencies = [
 
 [[package]]
 name = "pecto-python"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "pecto-core",
  "rayon",
@@ -516,7 +516,7 @@ dependencies = [
 
 [[package]]
 name = "pecto-typescript"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "pecto-core",
  "rayon",
