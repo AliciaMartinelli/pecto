@@ -20,6 +20,14 @@
 
 pecto is an open-source CLI that analyzes Java, C#, Python, and TypeScript codebases and generates human-readable behavior specifications — without LLMs, fast, deterministic, and fully offline.
 
+<p align="center">
+  <img src="assets/screenshot-graph.png" alt="pecto dashboard — dependency graph" width="800" />
+</p>
+
+<p align="center">
+  <img src="assets/screenshot-detail.png" alt="pecto dashboard — endpoint details and flow trace" width="800" />
+</p>
+
 ```
 $ pecto init ./my-spring-app
 
