@@ -42,22 +42,23 @@ Or download pre-built binaries from [GitHub Releases](https://github.com/AliciaM
 
 ```bash
 # Analyze a project (language auto-detected)
-pecto init ./my-app
+cd ./my-app
+pecto init
+
+# Launch interactive dashboard
+pecto serve
 
 # Specify language explicitly
-pecto init ./my-app --language java
-pecto init ./my-app --language csharp
-pecto init ./my-app --language python
-pecto init ./my-app --language typescript
+pecto init --language java
 
 # Output as JSON instead of YAML
-pecto init ./my-app --format json
+pecto init --format json
 
 # Save to file
-pecto init ./my-app --output specs.yaml
+pecto init --output specs.yaml
 
 # Show detailed per-capability breakdown
-pecto init ./my-app --verbose
+pecto init --verbose
 
 # Machine-readable output (no status messages)
 pecto init ./my-app --quiet > specs.yaml
