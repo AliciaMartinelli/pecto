@@ -22,10 +22,8 @@ pecto is an open-source CLI that analyzes Java, C#, Python, and TypeScript codeb
 
 <p align="center">
   <img src="assets/screenshot-graph.png" alt="pecto dashboard — dependency graph" width="800" />
-</p>
-
-<p align="center">
-  <img src="assets/screenshot-detail.png" alt="pecto dashboard — endpoint details and flow trace" width="800" />
+  <br/>
+  <em><code>pecto serve</code> — interactive dashboard with dependency graph, domain clusters, and flow tracing</em>
 </p>
 
 ```
