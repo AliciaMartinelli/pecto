@@ -1,14 +1,22 @@
-# pecto
+<p align="center">
+  <img src="assets/logo.svg" alt="pecto" width="120" />
+</p>
 
-[![CI](https://github.com/AliciaMartinelli/pecto/actions/workflows/ci.yml/badge.svg)](https://github.com/AliciaMartinelli/pecto/actions/workflows/ci.yml)
-[![crates.io](https://img.shields.io/crates/v/pecto.svg)](https://crates.io/crates/pecto)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+<h1 align="center">pecto</h1>
 
-**Extract behavior specs from code through static analysis.**
+<p align="center">
+  <a href="https://github.com/AliciaMartinelli/pecto/actions/workflows/ci.yml"><img src="https://github.com/AliciaMartinelli/pecto/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://crates.io/crates/pecto"><img src="https://img.shields.io/crates/v/pecto.svg" alt="crates.io"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
+</p>
 
-> Your code has behaviors. pecto makes them visible.
+<p align="center"><strong>Extract behavior specs from code through static analysis.</strong></p>
 
-**[pecto.dev](https://pecto.dev)** · [Docs](https://pecto.dev/docs) · [Install](#install)
+<p align="center">Your code has behaviors. pecto makes them visible.</p>
+
+<p align="center">
+  <a href="https://pecto.dev"><strong>pecto.dev</strong></a> · <a href="https://pecto.dev/docs">Docs</a> · <a href="#install">Install</a>
+</p>
 
 pecto is an open-source CLI that analyzes Java, C#, Python, and TypeScript codebases and generates human-readable behavior specifications — without LLMs, fast, deterministic, and fully offline.
 
